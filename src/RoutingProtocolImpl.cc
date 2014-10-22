@@ -90,10 +90,10 @@ void RoutingProtocolImpl::recv(unsigned short port, void *packet, unsigned short
 	return;
   }
   
-  ePacketType packet_type = *(ePacketType*) packet;
+  char packet_type = *(char*) packet;
   cout << "RECV: Router: " << router_id << " received packet at " << sys->time()/1000.0<<endl;
   cout << "Packet size: "<< packet_size << endl;
-  cout << "Packet type: " << packet_type << endl;
+  cout << "Packet type: " << (unsigned short)packet_type << endl;
   
   switch(packet_type){
 	case DATA:
