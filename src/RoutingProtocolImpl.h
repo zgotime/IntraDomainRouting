@@ -54,6 +54,24 @@ class RoutingProtocolImpl : public RoutingProtocol {
 	static const char* PING_ALARM; // ping-pong
 	static const char* UPDATE_ALARM; // update data
 	
+	/* the interval for each signal in milliseconds */
+	
+	/* Ping signal */
+	static const unsigned int PING_INTERVAL = 10000;
+	static const unsigned int PONG_MAX_TIMEOUT = 15000;
+	
+	/* DV signal */
+	static const unsigned int DV_UPDATE_INTERVAL = 30000;
+	static const unsigned int DV_MAX_TIMEOUT = 45000;
+	static const unsigned int DV_REFRESH_RATE = 1000;
+	
+	/* LS signal */
+	static const unsigned int LS_UPDATE_INTERVAL = 30000;
+	static const unsigned int LS_MAX_TIMEOUT = 45000;
+	static const unsigned int LS_REFRESH_RATE =1000;
+	
+	
+	
 	
 	Node *sys; // To store Node object; used to access GSR9999 interfaces 
 	
