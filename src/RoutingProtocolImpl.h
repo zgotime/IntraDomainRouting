@@ -3,10 +3,20 @@
 
 #include "RoutingProtocol.h"
 
+struct Port_Status{
+	unsigned short neighbor_router_id;
+	unsigned short RTT;
+	unsigned int expire_time;
+}
+	
+
+
+
 class RoutingProtocolImpl : public RoutingProtocol {
   public:
     RoutingProtocolImpl(Node *n);
     ~RoutingProtocolImpl();
+	
 
     void init(unsigned short num_ports, unsigned short router_id, eProtocolType protocol_type);
     // As discussed in the assignment document, your RoutingProtocolImpl is
@@ -47,6 +57,18 @@ class RoutingProtocolImpl : public RoutingProtocol {
 	void handle_invalid_alarm();
 	
 	void handle_invalid_protocol_type();
+	
+	void handle_data_packet();
+	
+	void handle_ping_packet(unsigned short port, void* packet, unsigned short size);
+	
+	void handle_pong_packet(unsigned short port, void* packet);
+	
+	void handle_ls_packet();
+	
+	void handle_dv_packet();
+	
+	void handle_invalid_packet();
 
  private:
     
@@ -73,8 +95,7 @@ class RoutingProtocolImpl : public RoutingProtocol {
 	static const unsigned int LS_REFRESH_RATE =1000;
 	
 	/* Port data structure */
-	unsigned int*  port_RTT;
-	int* port_router_id;
+	Port_Status*  port_status_list;
 	
 	
 	

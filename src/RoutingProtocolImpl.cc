@@ -16,6 +16,9 @@ RoutingProtocolImpl::RoutingProtocolImpl(Node *n) : RoutingProtocol(n) {
 
 RoutingProtocolImpl::~RoutingProtocolImpl() {
   // add your own code (if needed)
+  
+  delete[] port_status_list;
+  
 }
 
 void RoutingProtocolImpl::init(unsigned short num_ports, unsigned short router_id, eProtocolType protocol_type) {
@@ -24,8 +27,7 @@ void RoutingProtocolImpl::init(unsigned short num_ports, unsigned short router_i
 	this->router_id = router_id;
 	this->protocol_type = protocol_type;
 	
-	port_status = new unsigned int[num_ports];
-	port_router_id = new int[num_ports];
+	port_status_list = new Port_Status[num_ports];
 	
 	/* Check the protocol type */
 	if(protocol_type == P_DV){
@@ -72,6 +74,43 @@ void RoutingProtocolImpl::handle_alarm(void *data) {
 
 void RoutingProtocolImpl::recv(unsigned short port, void *packet, unsigned short size) {
   // add your own code
+  /* Get the claimed size of the packet */
+  unsigned short packet_size =(unsigned short) ntohs(*(unsigned short*)(packet+2));
+  
+  /* Compare the size value in the packet with the method input value */
+  
+  if(packet_size,size){
+	cerr << "RECV ERROR: Router: " << router_id << " received packet with wrong packet size at " <<sys->time()/1000.0 <<endl;
+	free(packet);
+	return;
+  }
+  
+  ePacketType packet_type = *(ePacketType*) packet;
+  cout << "RECV: Router: " << router_id << " received packet at " << sys->time()/1000.0<<endl;
+  cout << "Packet size: "<< packet_size << endl;
+  cout << "Packet type: " << packet_type << endl;
+  
+  switch(packet_type){
+	case DATA:
+		handle_data_packet();
+		break;
+	case PING;
+		handle_ping_packet(port, packet,size);
+		break;
+	case PONG;
+		handle_pong_packet(port, packet);
+		break;
+	case LS;
+		handle_ls_packet();
+		break;
+	case DV;
+		handle_dv_packet();
+		break;
+	default:
+		handle_invalid_packet();
+		break;
+  }
+  
 }
 
 // add more of your own code
@@ -118,4 +157,47 @@ void RoutingProtocolImpl::handle_invalid_alarm(){
 }
 
 void RoutingProtocolImpl::handle_invalid_protocol_type(){
+}
+
+void RoutingProtocolImpl::handle_data_packet(){
+
+}
+
+void RoutingProtocolImpl::handle_ping_packet(unsigned short port, void* packet, unsigned short size){
+	/* Change the packet type to PONG */
+	*(ePacketType*) packet = ePacketType::PONG;
+	/* Move the source id to dest id in packet */
+	memcpy(packet+4,packet+6,2);
+	/* Move the router's id to the source id */
+	*(unsigned short*)(packet+4) = (unsigned short) htons(router_id);
+	/* Send the pong packet back to the sender */
+	sys->send(port,packet,size);
+}
+
+void RoutingProtocolImpl::handle_pong_packet(unsigned short port, void* packet){
+	/* Check if the PONG packet belongs to the router */
+	if(!*(unsigned short*)(packet+6)== router_id){
+		cerr<< "RECV PONG ERROR: Router: "<<router_id<< "received PONG packet with wrong destination router ID at time: " << sys->time()/1000.0<<endl;
+		free(packet);
+		return;
+	}
+
+	unsigned int time_stamp = (unsigned int) ntohl(*(unsigned int*)(packet+8));
+	unsigned short neighbor_router_id = (unsigned short)ntohs(*(unsigned short*)(packet+4));
+	
+	Port_Status port_s = port_status_list[port];
+	port_s.RRT = sys->time()-time_stamp;
+	port_s.neighbor_router_id = neighbor_router_id;
+	port_s.expire_time = sys->time()+PONG_MAX_TIMEOUT;
+	
+	free(packet);
+}
+	
+void RoutingProtocolImpl::handle_ls_packet(){
+}
+	
+void RoutingProtocolImpl::handle_dv_packet(){
+}
+	
+void RoutingProtocolImpl::handle_invalid_packet(){
 }
