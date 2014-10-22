@@ -72,7 +72,10 @@ class RoutingProtocolImpl : public RoutingProtocol {
 	static const unsigned int LS_MAX_TIMEOUT = 45000;
 	static const unsigned int LS_REFRESH_RATE =1000;
 	
-	unsigned int*  port_status; 
+	/* Port data structure */
+	unsigned int*  port_RTT;
+	int* port_router_id;
+	
 	
 	
 	Node *sys; // To store Node object; used to access GSR9999 interfaces 

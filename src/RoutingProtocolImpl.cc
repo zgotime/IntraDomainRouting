@@ -25,6 +25,8 @@ void RoutingProtocolImpl::init(unsigned short num_ports, unsigned short router_i
 	this->protocol_type = protocol_type;
 	
 	port_status = new unsigned int[num_ports];
+	port_router_id = new int[num_ports];
+	
 	/* Check the protocol type */
 	if(protocol_type == P_DV){
 		sys->set_alarm(this,DV_UPDATE_INTERVAL,(void *)&DV_UPDATE_ALARM);
