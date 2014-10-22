@@ -45,14 +45,16 @@ class RoutingProtocolImpl : public RoutingProtocol {
 	void handle_update_alarm();
 	
 	void handle_invalid_alarm();
+	
+	void handle_invalid_protocol_type();
 
  private:
     
 	/* all kinds of alarms, stored as data via set_alarm */
-	static const char* LS_ALARM; // linked state
-	static const char* DV_ALARM; // distance vector
+	static const char* LS_UPDATE_ALARM; // linked state
+	static const char* DV_UPDATE_ALARM; // distance vector
 	static const char* PING_ALARM; // ping-pong
-	static const char* UPDATE_ALARM; // update data
+	static const char* REFRESH_ALARM; // refresh data
 	
 	/* the interval for each signal in milliseconds */
 	
@@ -70,7 +72,7 @@ class RoutingProtocolImpl : public RoutingProtocol {
 	static const unsigned int LS_MAX_TIMEOUT = 45000;
 	static const unsigned int LS_REFRESH_RATE =1000;
 	
-	
+	unsigned int*  port_status; 
 	
 	
 	Node *sys; // To store Node object; used to access GSR9999 interfaces 

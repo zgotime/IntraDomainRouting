@@ -19,10 +19,30 @@ RoutingProtocolImpl::~RoutingProtocolImpl() {
 }
 
 void RoutingProtocolImpl::init(unsigned short num_ports, unsigned short router_id, eProtocolType protocol_type) {
-  // Passing the three arguments to the function
-  this->num_ports = num_ports;
-  this->router_id = router_id;
-  this->protocol_type = protocol_type;
+	// Passing the three arguments to the function
+	this->num_ports = num_ports;
+	this->router_id = router_id;
+	this->protocol_type = protocol_type;
+	
+	port_status = new unsigned int[num_ports];
+	/* Check the protocol type */
+	if(protocol_type == P_DV){
+		sys->set_alarm(this,DV_UPDATE_INTERVAL,(void *)&DV_UPDATE_ALARM);
+		sys->set_alarm(this,DV_REFRESH_RATE,(void *) &REFRESH_ALARM);
+		
+	}
+	else if(protocol_type == P_LS){
+		sys->set_alarm(this,LS_UPDATE_INTERVAL,(void *) &LS_UPDATE_ALARM);
+		sys->set_alarm(this,DV_REFRESH_RATE,(void *) &REFRESH_ALARM);
+		
+	}
+	else{
+		handle_invalid_protocol_type();
+	}
+	
+	/* Ping the message to the ports */
+	sys->set_alarm(this,0,(void*)&PING_ALARM);
+ 
 	
  }
 
@@ -34,13 +54,13 @@ void RoutingProtocolImpl::handle_alarm(void *data) {
 	if(strcmp(alarm_type,PING_ALARM)==0){
 		handle_ping_alarm();
 	}
-	else if(strcmp(alarm_type,DV_ALARM)==0){
+	else if(strcmp(alarm_type,DV_UPDATE_ALARM)==0){
 		handle_dv_alarm();
 	}
-	else if(strcmp(alarm_type,LS_ALARM)==0){
+	else if(strcmp(alarm_type,LS_UPDATE_ALARM)==0){
 		handle_ls_alarm();
 	}
-	else if(strcmp(alarm_type,UPDATE_ALARM)==0){
+	else if(strcmp(alarm_type,REFRESH_ALARM)==0){
 		handle_update_alarm();
 	}
 	else{
@@ -70,4 +90,7 @@ void RoutingProtocolImpl::handle_update_alarm(){
 
 void RoutingProtocolImpl::handle_invalid_alarm(){
 
+}
+
+void RoutingProtocolImpl::handle_invalid_protocol_type(){
 }
