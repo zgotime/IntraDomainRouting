@@ -33,7 +33,7 @@ class RoutingProtocolImpl : public RoutingProtocol {
     // recv() function will be called for such DATA packet, but with a
     // special port number of SPECIAL_PORT (see global.h) to indicate
     // that the packet is generated locally and not received from 
-    // a neighbor router.
+    // a neighbour router.
 	
 	
 	void handle_ping_alarm();

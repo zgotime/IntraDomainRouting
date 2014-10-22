@@ -79,14 +79,25 @@ void RoutingProtocolImpl::recv(unsigned short port, void *packet, unsigned short
 
 void RoutingProtocolImpl::handle_ping_alarm(){
 	/* The packet size */
-	
 	unsigned short ping_packet_size = 12;
 	
 	/* Send to all of its ports */
 	for(int i=0;i<num_ports;i++){
+		void * packet = malloc(ping_packet_size);
+		/* First 1 byte for the type */
+		*(ePacketType*) packet = ePacketType::PING;
+		/* Second 1 byte reserved ... */
+		
+		/* Third 2 bytes for the packet size */
+		*(unsigned short*) (packet+2) = (unsigned short) htons(ping_packet_size); 
 	
-	
-		sys->send();
+		/* Fourth 2 bytes for the router id */
+		*(unsigned short*) (packet+4) = (unsigned short) htons(router_id);
+		
+		/* Fifth(last) 4 bytes for the PING time data */
+		* (unsigned int*) (packet+8) = (unsigned int) htonl(sys->time());
+		
+		sys->send((unsigned short)i,packet,ping_packet_size);
 	}
 	/* Iteratively ping */
 	sys->set_alarm(this,PING_INTERVAL,(void*)PING_ALARM);
