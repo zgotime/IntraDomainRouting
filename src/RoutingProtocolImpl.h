@@ -7,7 +7,7 @@ struct Port_Status{
 	unsigned short neighbor_router_id;
 	unsigned short RTT;
 	unsigned int expire_time;
-}
+};
 	
 
 
