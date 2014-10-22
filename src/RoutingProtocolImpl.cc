@@ -29,13 +29,13 @@ void RoutingProtocolImpl::init(unsigned short num_ports, unsigned short router_i
 	
 	/* Check the protocol type */
 	if(protocol_type == P_DV){
-		sys->set_alarm(this,DV_UPDATE_INTERVAL,(void *)&DV_UPDATE_ALARM);
-		sys->set_alarm(this,DV_REFRESH_RATE,(void *) &REFRESH_ALARM);
+		sys->set_alarm(this,DV_UPDATE_INTERVAL,(void *)DV_UPDATE_ALARM);
+		sys->set_alarm(this,DV_REFRESH_RATE,(void *) REFRESH_ALARM);
 		
 	}
 	else if(protocol_type == P_LS){
-		sys->set_alarm(this,LS_UPDATE_INTERVAL,(void *) &LS_UPDATE_ALARM);
-		sys->set_alarm(this,DV_REFRESH_RATE,(void *) &REFRESH_ALARM);
+		sys->set_alarm(this,LS_UPDATE_INTERVAL,(void *) LS_UPDATE_ALARM);
+		sys->set_alarm(this,DV_REFRESH_RATE,(void *)REFRESH_ALARM);
 		
 	}
 	else{
@@ -78,6 +78,18 @@ void RoutingProtocolImpl::recv(unsigned short port, void *packet, unsigned short
 
 
 void RoutingProtocolImpl::handle_ping_alarm(){
+	/* The packet size */
+	
+	unsigned short ping_packet_size = 12;
+	
+	/* Send to all of its ports */
+	for(int i=0;i<num_ports;i++){
+	
+	
+		sys->send();
+	}
+	/* Iteratively ping */
+	sys->set_alarm(this,PING_INTERVAL,(void*)PING_ALARM);
 }
 
 void RoutingProtocolImpl::handle_ls_alarm(){
