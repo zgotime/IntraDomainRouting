@@ -43,7 +43,7 @@ void RoutingProtocolImpl::init(unsigned short num_ports, unsigned short router_i
 	}
 	
 	/* Ping the message to the ports */
-	sys->set_alarm(this,0,(void*)&PING_ALARM);
+	sys->set_alarm(this,0,(void*)PING_ALARM);
  
 	
  }
