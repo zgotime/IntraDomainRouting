@@ -3,6 +3,7 @@
 #include "Node.h"
 #include "stdio.h"
 #include "string.h"
+#include <climits>
 
 
 const char* RoutingProtocolImpl::LS_UPDATE_ALARM="LSUPDATE";
@@ -220,9 +221,16 @@ void RoutingProtocolImpl::handle_dv_refresh_alarm(){
 		DV_Info current_info = it->second;
 		if((current_info.expire_time-sys->time())<0){
 			cout<< "Router: "<<current_router<<" time-out"<<endl;
+			/* Notify the neighbor about this time out for poison reverse*/
+			current_info.cost = USHRT_MAX;
+			dv_stack.push(current_info);
+			/* Remove from DV table */
 			dv_table.erase(current_router);
 		}
 	}
+	/* Notify */
+	handle_dv_stack();
+
 	sys->set_alarm(this,DV_REFRESH_RATE,(void*)DV_REFRESH_ALARM);
 }
 
@@ -234,11 +242,26 @@ void RoutingProtocolImpl::handle_port_refresh_alarm(){
 		Port_Status port_s = port_status_list[i];
 		if(port_s.neighbor_router_id>=0){
 			/* Compare time, erase the router id if exceed expire_time */
-			if(port_s.expire_time-sys->time()<0){ 
+			if(port_s.expire_time-sys->time()<0){
+				/* Send Cost Infinity to prevent from poison reverse */
+				DV_Info dv_s = dv_table[port_s.neighbor_router_id];
+				dv_s.cost = USHRT_MAX;
+				dv_stack.push(dv_s);
+				
+				/* If our path to neighbor is exactly neighbor itself, we erase it */
+				if (dv_s.next_hop == port_s.neighbor_router_id){
+					
+					/* We remove it from our table*/
+					dv_table.erase(port_s.neighbor_router_id);
+				}
+
+				/* Remove the neighbor */
 				port_s.neighbor_router_id = -1;
 			}
 		}
 	}
+	/* Notify others about the change */
+	handle_dv_stack();
 
 	/* Do a refresh check for every port */
 	sys->set_alarm(this,PING_REFRESH_RATE,(void*)PORT_REFRESH_ALARM);
@@ -262,7 +285,7 @@ void RoutingProtocolImpl::handle_data_packet(unsigned short port, void* packet, 
 		/* The case when it is DV */
 
 		/* When the port is originating from itself */
-		if (port == 65535){
+		if (port == USHRT_MAX){
 			if (dv_table.find(dest_id) == dv_table.end()){
 				cout << "Router: " << router_id << "tried to originate DATA packet router ID at time: " << sys->time() / 1000.0 << endl;
 				cout << "Router cannot find destination" << endl;
@@ -456,7 +479,8 @@ void RoutingProtocolImpl::handle_dv_packet(unsigned short port, void* packet, un
 	for(int i =0; i< num_dv_info-1;i++){
 		unsigned short dest_id = *((unsigned short *)((char*)packet+8+i*4));
 		unsigned short cost = *((unsigned short*)((char*)packet+10+i*4));
-		if(dv_table.find(dest_id)==dv_table.end()){
+		/* Add the new information into the table only if the cost is not infinity */
+		if(dv_table.find(dest_id)==dv_table.end()&& (cost!=USHRT_MAX)){
 			/* The destination node is not in the table */
 			DV_Info dv_s;
 			dv_s.dest = dest_id;
@@ -470,26 +494,40 @@ void RoutingProtocolImpl::handle_dv_packet(unsigned short port, void* packet, un
 		}
 		else {
 			
-			/* Refresh the dest node time even if no changes are made */
+			
 			DV_Info dv_s = dv_table[dest_id];
 			
-			dv_s.expire_time = sys->time()+DV_MAX_TIMEOUT;
-			
-			if(dv_s.next_hop==neighbor_router_id){
-				/* Add to dv stack only if they are different cost */
-				if(dv_s.cost != (cost+neighbor_cost) ){
-					dv_s.cost = cost+neighbor_cost;
-					/* Push to stack */
+			/* Check if an infinity package for poison reverse */
+			if (cost == USHRT_MAX){
+				/* If the infinity edge goes through the current stored hop, delete it and notify others */
+				if (dv_s.next_hop == neighbor_router_id){
+					dv_s.cost = USHRT_MAX;
+					dv_stack.push(dv_s);
+					dv_table.erase(dest_id);
+				}
+
+				/* Else it does nothing with our current path*/
+			}
+			else{
+				/* Refresh the dest node time even if no changes are made */
+				dv_s.expire_time = sys->time() + DV_MAX_TIMEOUT;
+
+				if (dv_s.next_hop == neighbor_router_id){
+					/* Add to dv stack only if they are different cost */
+					if (dv_s.cost != (cost + neighbor_cost)){
+						dv_s.cost = cost + neighbor_cost;
+						/* Push to stack */
+						dv_stack.push(dv_s);
+					}
+				}
+				else if (dv_table[dest_id].cost > (cost + neighbor_cost)){
+					/* Select a new shorter path, change next_hop */
+					dv_s.cost = cost + neighbor_cost;
+					dv_s.next_hop = neighbor_router_id;
+
+					/* Push stack */
 					dv_stack.push(dv_s);
 				}
-			}
-			else if(dv_table[dest_id].cost>(cost+neighbor_cost)){
-				/* Select a new shorter path, change next_hop */
-				dv_s.cost = cost + neighbor_cost;
-				dv_s.next_hop = neighbor_router_id;
-				
-				/* Push stack */
-				dv_stack.push(dv_s);
 			}
 		}
 	}
