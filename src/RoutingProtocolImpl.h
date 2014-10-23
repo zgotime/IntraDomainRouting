@@ -21,9 +21,9 @@ struct DV_Info{
 
 struct LS_Info{
 	unsigned int sequence;
+	unsigned int expire_time;
 	std::map<unsigned short, unsigned short> LSP;
 };
-	
 
 
 
@@ -83,8 +83,10 @@ class RoutingProtocolImpl : public RoutingProtocol {
 	
 	void handle_pong_packet(unsigned short port, void* packet);
 	
-	void handle_ls_packet();
+	void handle_ls_packet(unsigned short port, void* packet, unsigned short size);
 	
+	void handle_ls_stack();
+
 	void handle_dv_packet(unsigned short port, void* packet,unsigned short size);
 	
 	void handle_dv_stack();
