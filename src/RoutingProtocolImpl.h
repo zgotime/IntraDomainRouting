@@ -18,6 +18,11 @@ struct DV_Info{
 	unsigned short next_hop;
 };
 
+
+struct LS_Info{
+	unsigned int sequence;
+	std::map<unsigned short, unsigned short> LSP;
+};
 	
 
 
@@ -115,12 +120,21 @@ class RoutingProtocolImpl : public RoutingProtocol {
 	static const unsigned int LS_MAX_TIMEOUT = 45000;
 	static const unsigned int LS_REFRESH_RATE =1000;
 	
+	/* LS sequence */
+	static unsigned long LS_SEQUENCE;
+
 	/* Port data structure */
 	Port_Status*  port_status_list;
-	
+	std::map<unsigned short, unsigned short> hop_to_port;
+
 	/* DV data structure */
 	std::map<unsigned short,DV_Info> dv_table;
 	std::stack<DV_Info> dv_stack;
+
+	/* LS data structure */
+	std::map<unsigned short, LS_Info> ls_table;
+	std::stack<LS_Info> ls_stack;
+
 	
 	Node *sys; // To store Node object; used to access GSR9999 interfaces 
 	
