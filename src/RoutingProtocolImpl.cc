@@ -5,14 +5,17 @@
 #include "string.h"
 
 
-const char* RoutingProtocolImpl::LS_UPDATE_ALARM="LS";
+const char* RoutingProtocolImpl::LS_UPDATE_ALARM="LSUPDATE";
 
-const char* RoutingProtocolImpl::DV_UPDATE_ALARM = "DV";
+const char* RoutingProtocolImpl::DV_UPDATE_ALARM = "DVUPDATE";
 
 const char* RoutingProtocolImpl::PING_ALARM = "PING";
 
-const char* RoutingProtocolImpl::REFRESH_ALARM = "UPDATE";
+const char* RoutingProtocolImpl::LS_REFRESH_ALARM = "LSREFRESH";
 
+const char* RoutingProtocolImpl::DV_REFRESH_ALARM = "DVREFRESH";
+
+const char* RoutingProtocolImpl::PORT_REFRESH_ALARM = "PORTREFRESH";
 
 
 RoutingProtocolImpl::RoutingProtocolImpl(Node *n) : RoutingProtocol(n) {
@@ -35,14 +38,21 @@ void RoutingProtocolImpl::init(unsigned short num_ports, unsigned short router_i
 	
 	port_status_list = new Port_Status[num_ports];
 	
+	/* Set the router_id to invalid -1 for every port */
+	for(int i = 0; i<num_ports-1;i++){
+		port_status_list[i].neighbor_router_id = -1;
+	}
+	
+	
 	/* Check the protocol type */
 	if(protocol_type == P_DV){
+		
 		sys->set_alarm(this,DV_UPDATE_INTERVAL,(void *)DV_UPDATE_ALARM);
-		sys->set_alarm(this,DV_REFRESH_RATE,(void *) REFRESH_ALARM);
+		sys->set_alarm(this,DV_REFRESH_RATE,(void *) DV_REFRESH_ALARM);
 	}
 	else if(protocol_type == P_LS){
 		sys->set_alarm(this,LS_UPDATE_INTERVAL,(void *) LS_UPDATE_ALARM);
-		sys->set_alarm(this,DV_REFRESH_RATE,(void *)REFRESH_ALARM);
+		sys->set_alarm(this,LS_REFRESH_RATE,(void *)LS_REFRESH_ALARM);
 		
 	}
 	else{
@@ -50,7 +60,9 @@ void RoutingProtocolImpl::init(unsigned short num_ports, unsigned short router_i
 	}
 	
 	/* Ping the message to the ports */
-	sys->set_alarm(this,0,(void*)PING_ALARM);
+	handle_ping_alarm();
+	/* Do a refresh check for every port */
+	sys->set_alarm(this,1,(void*)PORT_REFRESH_ALARM);
  
 	
  }
@@ -64,17 +76,25 @@ void RoutingProtocolImpl::handle_alarm(void *data) {
 		handle_ping_alarm();
 	}
 	else if(strcmp(alarm_type,DV_UPDATE_ALARM)==0){
-		handle_dv_alarm();
+		handle_dv_update_alarm();
 	}
 	else if(strcmp(alarm_type,LS_UPDATE_ALARM)==0){
-		handle_ls_alarm();
+		handle_ls_update_alarm();
 	}
-	else if(strcmp(alarm_type,REFRESH_ALARM)==0){
-		handle_update_alarm();
+	else if(strcmp(alarm_type,LS_REFRESH_ALARM)==0){
+		handle_ls_refresh_alarm();
+	}
+	else if(strcmp(alarm_type,DV_REFRESH_ALARM)==0){
+		handle_dv_refresh_alarm();
+	}
+	else if(strcmp(alarm_type,PORT_REFRESH_ALARM)==0){
+		handle_port_refresh_alarm();
 	}
 	else{
 		handle_invalid_alarm();
 	}
+	
+	free(data);
 }
 
 void RoutingProtocolImpl::recv(unsigned short port, void *packet, unsigned short size) {
@@ -126,7 +146,7 @@ void RoutingProtocolImpl::handle_ping_alarm(){
 	unsigned short ping_packet_size = 12;
 	
 	/* Send to all of its ports */
-	for(int i=0;i<num_ports;i++){
+	for(int i=0;i<num_ports-1;i++){
 		char* packet = (char*)malloc(ping_packet_size);
 		/* First 1 byte for the type */
 		*(ePacketType*) packet = PING;
@@ -135,10 +155,12 @@ void RoutingProtocolImpl::handle_ping_alarm(){
 		/* Third 2 bytes for the packet size */
 		*(unsigned short*) (packet+2) = (unsigned short) htons(ping_packet_size); 
 	
-		/* Fourth 2 bytes for the router id */
+		/* Fourth 2 bytes for the source id */
 		*(unsigned short*) (packet+4) = (unsigned short) htons(router_id);
 		
-		/* Fifth(last) 4 bytes for the PING time data */
+		/* Fifth 2 bytes for the dest id which is left blank in Ping case*/
+		
+		/* Sixth(last) 4 bytes for the PING time data */
 		* (unsigned int*) (packet+8) = (unsigned int) htonl(sys->time());
 		
 		sys->send((unsigned short)i,packet,ping_packet_size);
@@ -147,14 +169,79 @@ void RoutingProtocolImpl::handle_ping_alarm(){
 	sys->set_alarm(this,PING_INTERVAL,(void*)PING_ALARM);
 }
 
-void RoutingProtocolImpl::handle_ls_alarm(){
+void RoutingProtocolImpl::handle_ls_update_alarm(){
 
 }
 
-void RoutingProtocolImpl::handle_dv_alarm(){
+void RoutingProtocolImpl::handle_dv_update_alarm(){
+	/* The packet size */
+	unsigned short dv_update_packet_size = 8+(unsigned short)dv_table.size();
+	
+	/* Send to all of its destinations */
+	for(int i =0;i<num_ports-1;i++){
+		Port_Status port_s = port_status_list[i];
+		if(port_s.neighbor_router_id>=0){
+
+			char* packet = (char*) malloc(dv_update_packet_size);
+			
+			/* First 1 byte */
+			*(ePacketType*) packet = DV;
+			/* Second 1 byte reserved.. */
+			
+			/* Third 2 bytes for the packet size */
+			*(unsigned short*) (packet+2) = (unsigned short) htons(dv_update_packet_size); 
+		
+			/* Fourth 2 bytes for the source id */
+			*(unsigned short*) (packet+4) = (unsigned short) htons(router_id);
+			
+			/* Fifth 2 bytes for the dest id */
+			*(unsigned short*) (packet+6) = (unsigned short) htons(port_s.neighbor_router_id);
+		
+			/* Sixth for data */
+			// Left for change using memcpy to save iteration
+			int j = 6;
+			for(std::map<unsigned short, DV_Info>::iterator it=dv_table.begin();it!=dv_table.end();it++){
+				*(unsigned short*) (packet+j) = (unsigned short) htons(it->first);
+				*(unsigned short*) (packet+j+2) =(unsigned short) htons(it->second.cost);
+				j = j+4;
+			}
+			
+			sys->send((unsigned short)i,packet,dv_update_packet_size);
+		}
+	}
+	
+	sys->set_alarm(this,DV_UPDATE_INTERVAL,(void*)DV_UPDATE_ALARM);
+	
 }
 
-void RoutingProtocolImpl::handle_update_alarm(){
+void RoutingProtocolImpl::handle_dv_refresh_alarm(){
+	for(std::map<unsigned short, DV_Info>::iterator it = dv_table.begin();it!=dv_table.end();it++){
+		unsigned short current_router = it->first;
+		DV_Info current_info = it->second;
+		if((current_info.expire_time-sys->time())<0){
+			cout<< "Router: "<<current_router<<" time-out"<<endl;
+			dv_table.erase(current_router);
+		}
+	}
+	sys->set_alarm(this,DV_REFRESH_RATE,(void*)DV_REFRESH_ALARM);
+}
+
+void RoutingProtocolImpl::handle_ls_refresh_alarm(){
+}
+
+void RoutingProtocolImpl::handle_port_refresh_alarm(){
+	for(int i = 0; i<num_ports-1;i++){
+		Port_Status port_s = port_status_list[i];
+		if(port_s.neighbor_router_id>=0){
+			/* Compare time, erase the router id if exceed expire_time */
+			if(port_s.expire_time-sys->time()<0){ 
+				port_s.neighbor_router_id = -1;
+			}
+		}
+	}
+
+	/* Do a refresh check for every port */
+	sys->set_alarm(this,PING_REFRESH_RATE,(void*)PORT_REFRESH_ALARM);
 }
 
 void RoutingProtocolImpl::handle_invalid_alarm(){
@@ -192,10 +279,98 @@ void RoutingProtocolImpl::handle_pong_packet(unsigned short port, void* packet){
 	
 	Port_Status port_s = port_status_list[port];
 	port_s.RTT = sys->time()-time_stamp;
-	port_s.neighbor_router_id = neighbor_router_id;
-	port_s.expire_time = sys->time()+PONG_MAX_TIMEOUT;
+	port_s.neighbor_router_id = (int)neighbor_router_id;
+	port_s.expire_time = sys->time()+PONG_MAX_TIMEOUT; // Potential overflow!?!? time could be very large!
+	
+	/* Update the neighbor router cost for DV and LS */
+	if(protocol_type==P_DV){
+		
+		
+		if(dv_table.find(neighbor_router_id)==dv_table.end()){
+			/* If the neighbor is not in table */
+			DV_Info dv_s;
+			dv_s.dest = neighbor_router_id;
+			dv_s.cost = port_s.RTT;
+			dv_s.expire_time = sys->time()+DV_MAX_TIMEOUT;
+			dv_s.next_hop = neighbor_router_id;
+			
+			// Push the dv into the stack
+		}
+		else{
+			/* Only push to stack if different */
+			DV_Info dv_s = dv_table[neighbor_router_id];
+			dv_s.expire_time = sys->time()+DV_MAX_TIMEOUT;
+			
+			if(dv_s.next_hop==neighbor_router_id){
+				/* Replace the RTT if the stored hop is just the neighbor */
+				dv_s.cost = port_s.RTT;
+				// Push to stack
+				dv_stack.push(dv_s);
+				handle_dv_stack();
+			}
+			else if(dv_s.cost > port_s.RTT){
+				/* The cost is lower than stored cost, replace it and renew the hop */
+				dv_s.cost = port_s.RTT;
+				dv_s.next_hop = neighbor_router_id;
+				// Push to stack
+				dv_stack.push(dv_s);
+				handle_dv_stack();
+			}
+			// We do not care if the RTT is higher than stored cost
+		}
+		/* Notify other nodes about the new neighbor change */
+		// LEFT TO DO
+	}
+	else if(protocol_type==P_LS){
+		// TO DO
+	}
 	
 	free(packet);
+}
+
+void RoutingProtocolImpl::handle_dv_stack(){
+	unsigned short stack_size = (unsigned short) dv_stack.size()*4;
+	char * stack_data = (char *) malloc(stack_size);
+	int i = 0;
+	while(!dv_stack.empty()){
+		DV_Info dv_i = dv_stack.top();
+		unsigned short dest = dv_i.dest;
+		unsigned short cost = dv_i.cost;
+		*(unsigned short*) (stack_data+i) = dest;
+		*(unsigned short*) (stack_data+i+2) = cost;
+		dv_stack.pop();
+		i = i+4;
+	}
+	
+	for(int j = 0; j<num_ports-1;j++){
+		Port_Status port_s = port_status_list[j];
+		if(port_s.neighbor_router_id!=-1){
+			char * packet = (char *) malloc(stack_size+8);
+			
+			/* First 1 byte */
+			*(ePacketType*) packet = DV;
+			/* Second 1 byte reserved.. */
+			
+			/* Third 2 bytes for the packet size */
+			*(unsigned short*) (packet+2) = (unsigned short) htons(stack_size+8); 
+		
+			/* Fourth 2 bytes for the source id */
+			*(unsigned short*) (packet+4) = (unsigned short) htons(router_id);
+			
+			/* Fifth 2 bytes for the dest id */
+			*(unsigned short*) (packet+6) = (unsigned short) htons(port_s.neighbor_router_id);
+		
+			/* Sixth for data, copy the */
+			memcpy(packet+8,stack_data,stack_size);
+			
+			/* Send the packet */
+			sys->send((unsigned short)j,packet,stack_size+8);
+		}
+	}
+	
+	/* After sending the data we free the original data */
+	free(stack_data);
+
 }
 	
 void RoutingProtocolImpl::handle_ls_packet(){

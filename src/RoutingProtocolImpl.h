@@ -2,12 +2,22 @@
 #define ROUTINGPROTOCOLIMPL_H
 
 #include "RoutingProtocol.h"
+#include <map>
+#include <stack>
 
 struct Port_Status{
-	unsigned short neighbor_router_id;
+	int neighbor_router_id; // int for router id since -1 means no router
 	unsigned short RTT;
 	unsigned int expire_time;
 };
+
+struct DV_Info{
+	unsigned short dest;
+	unsigned short cost;
+	unsigned int expire_time;
+	unsigned short next_hop;
+};
+
 	
 
 
@@ -48,11 +58,15 @@ class RoutingProtocolImpl : public RoutingProtocol {
 	
 	void handle_ping_alarm();
 	
-	void handle_ls_alarm();
+	void handle_ls_update_alarm();
 	
-	void handle_dv_alarm();
+	void handle_dv_update_alarm();
 	
-	void handle_update_alarm();
+	void handle_dv_refresh_alarm();
+	
+	void handle_ls_refresh_alarm();
+	
+	void handle_port_refresh_alarm();
 	
 	void handle_invalid_alarm();
 	
@@ -68,6 +82,8 @@ class RoutingProtocolImpl : public RoutingProtocol {
 	
 	void handle_dv_packet();
 	
+	void handle_dv_stack();
+	
 	void handle_invalid_packet();
 
  private:
@@ -76,13 +92,16 @@ class RoutingProtocolImpl : public RoutingProtocol {
 	static const char* LS_UPDATE_ALARM; // linked state
 	static const char* DV_UPDATE_ALARM; // distance vector
 	static const char* PING_ALARM; // ping-pong
-	static const char* REFRESH_ALARM; // refresh data
+	static const char* LS_REFRESH_ALARM; // refresh data
+	static const char* DV_REFRESH_ALARM; // refresh data
+	static const char* PORT_REFRESH_ALARM; // refresh port data
 	
 	/* the interval for each signal in milliseconds */
 	
 	/* Ping signal */
 	static const unsigned int PING_INTERVAL = 10000;
 	static const unsigned int PONG_MAX_TIMEOUT = 15000;
+	static const unsigned int PING_REFRESH_RATE =1000;
 	
 	/* DV signal */
 	static const unsigned int DV_UPDATE_INTERVAL = 30000;
@@ -97,7 +116,9 @@ class RoutingProtocolImpl : public RoutingProtocol {
 	/* Port data structure */
 	Port_Status*  port_status_list;
 	
-	
+	/* DV data structure */
+	std::map<unsigned short,DV_Info> dv_table;
+	std::stack<DV_Info> dv_stack;
 	
 	Node *sys; // To store Node object; used to access GSR9999 interfaces 
 	
