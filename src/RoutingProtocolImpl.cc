@@ -129,7 +129,7 @@ void RoutingProtocolImpl::recv(unsigned short port, void *packet, unsigned short
 		handle_ls_packet();
 		break;
 	case DV:
-		handle_dv_packet();
+		handle_dv_packet(port, packet,size);
 		break;
 	default:
 		handle_invalid_packet();
@@ -299,14 +299,17 @@ void RoutingProtocolImpl::handle_pong_packet(unsigned short port, void* packet){
 		else{
 			/* Only push to stack if different */
 			DV_Info dv_s = dv_table[neighbor_router_id];
+			/* Refresh the time of the neighbor even if no changes are made */
 			dv_s.expire_time = sys->time()+DV_MAX_TIMEOUT;
 			
 			if(dv_s.next_hop==neighbor_router_id){
-				/* Replace the RTT if the stored hop is just the neighbor */
-				dv_s.cost = port_s.RTT;
-				// Push to stack
-				dv_stack.push(dv_s);
-				handle_dv_stack();
+				/* Replace the RTT if the stored hop is just the neighbor and they are different */
+				if(dv_s.cost!=port_s.RTT){
+					dv_s.cost = port_s.RTT;
+					// Push to stack
+					dv_stack.push(dv_s);
+				}
+				
 			}
 			else if(dv_s.cost > port_s.RTT){
 				/* The cost is lower than stored cost, replace it and renew the hop */
@@ -314,12 +317,13 @@ void RoutingProtocolImpl::handle_pong_packet(unsigned short port, void* packet){
 				dv_s.next_hop = neighbor_router_id;
 				// Push to stack
 				dv_stack.push(dv_s);
-				handle_dv_stack();
 			}
 			// We do not care if the RTT is higher than stored cost
 		}
 		/* Notify other nodes about the new neighbor change */
-		// LEFT TO DO
+		
+		
+		handle_dv_stack();
 	}
 	else if(protocol_type==P_LS){
 		// TO DO
@@ -376,7 +380,66 @@ void RoutingProtocolImpl::handle_dv_stack(){
 void RoutingProtocolImpl::handle_ls_packet(){
 }
 	
-void RoutingProtocolImpl::handle_dv_packet(){
+void RoutingProtocolImpl::handle_dv_packet(unsigned short port, void* packet, unsigned short size){
+	/* Check if the DV packet belongs to the router */
+	if(!*(unsigned short*)((char*)packet+6)== router_id){
+		cerr<< "RECV DV ERROR: Router: "<<router_id<< "received DV packet with wrong destination router ID at time: " << sys->time()/1000.0<<endl;
+		free(packet);
+		return;
+	}
+
+	unsigned short neighbor_router_id = (unsigned short)ntohs(*(unsigned short*)((char*)packet+4));
+	int num_dv_info = (int)((size-8)/4);
+	// TODO: potential null neighbor?
+	unsigned short neighbor_cost = dv_table[neighbor_router_id].cost;
+	
+	
+	/* Loop through all the entries in the packet and update the dv_info */
+	for(int i =0; i< num_dv_info-1;i++){
+		unsigned short dest_id = *((unsigned short *)((char*)packet+8+i*4));
+		unsigned short cost = *((unsigned short*)((char*)packet+10+i*4));
+		if(dv_table.find(dest_id)==dv_table.end()){
+			/* The destination node is not in the table */
+			DV_Info dv_s;
+			dv_s.dest = dest_id;
+			dv_s.cost = cost+neighbor_cost;
+			dv_s.expire_time = sys->time()+DV_MAX_TIMEOUT;
+			dv_s.next_hop = neighbor_router_id;
+			dv_table[dest_id] = dv_s;
+			
+			/* Push to stack */
+			dv_stack.push(dv_s);
+		}
+		else {
+			
+			/* Refresh the dest node time even if no changes are made */
+			DV_Info dv_s = dv_table[dest_id];
+			
+			dv_s.expire_time = sys->time()+DV_MAX_TIMEOUT;
+			
+			if(dv_s.next_hop==neighbor_router_id){
+				/* Add to dv stack only if they are different cost */
+				if(dv_s.cost != (cost+neighbor_cost) ){
+					dv_s.cost = cost+neighbor_cost;
+					/* Push to stack */
+					dv_stack.push(dv_s);
+				}
+			}
+			else if(dv_table[dest_id].cost>(cost+neighbor_cost)){
+				/* Select a new shorter path, change next_hop */
+				dv_s.cost = cost + neighbor_cost;
+				dv_s.next_hop = neighbor_router_id;
+				
+				/* Push stack */
+				dv_stack.push(dv_s);
+			}
+		}
+	}
+	
+	handle_dv_stack();
+	
+	free(packet);
+
 }
 	
 void RoutingProtocolImpl::handle_invalid_packet(){

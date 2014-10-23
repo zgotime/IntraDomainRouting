@@ -80,7 +80,7 @@ class RoutingProtocolImpl : public RoutingProtocol {
 	
 	void handle_ls_packet();
 	
-	void handle_dv_packet();
+	void handle_dv_packet(unsigned short port, void* packet,unsigned short size);
 	
 	void handle_dv_stack();
 	
