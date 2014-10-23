@@ -117,7 +117,7 @@ void RoutingProtocolImpl::recv(unsigned short port, void *packet, unsigned short
   
   switch(packet_type){
 	case DATA:
-		handle_data_packet();
+		handle_data_packet(port, packet, size);
 		break;
 	case PING:
 		handle_ping_packet(port, packet,size);
@@ -251,9 +251,67 @@ void RoutingProtocolImpl::handle_invalid_alarm(){
 void RoutingProtocolImpl::handle_invalid_protocol_type(){
 }
 
-void RoutingProtocolImpl::handle_data_packet(){
+void RoutingProtocolImpl::handle_data_packet(unsigned short port, void* packet, unsigned short size){
+
+	/* Check if the DATA packet belongs to the router */
+	unsigned short dest_id = (unsigned short)ntohs(*(unsigned short*)((char*)packet + 6));
+
+
+	
+	if (protocol_type == P_DV){
+		/* The case when it is DV */
+
+		/* When the port is originating from itself */
+		if (port == 65535){
+			if (dv_table.find(dest_id) == dv_table.end()){
+				cout << "Router: " << router_id << "tried to originate DATA packet router ID at time: " << sys->time() / 1000.0 << endl;
+				cout << "Router cannot find destination" << endl;
+				free(packet);
+			}
+
+			/* Check if the packet is actually for itself, wierd case */
+			if (dest_id == router_id){
+				free(packet);
+			}
+
+			unsigned short next_hop = dv_table[dest_id].next_hop;
+			handle_send_data(next_hop, packet, size);
+		}
+
+		/* Else, it is receiving the data */
+
+		if (dest_id == router_id){
+			/* The router has recieved the DATA packet */
+			cout << "Router: " << router_id << "received DATA packet router ID at time: " << sys->time() / 1000.0 << endl;
+			free(packet);
+			return;
+		}
+
+		if (dv_table.find(dest_id) == dv_table.end()){
+			unsigned short next_hop = dv_table[dest_id].next_hop;
+			handle_send_data(next_hop, packet, size);
+		}
+		else{
+			/* Else, the dv_table cannot find the destination*/
+			cout << "Router: " << router_id << "received DATA packet router ID at time: " << sys->time() / 1000.0 << endl;
+			cout << "Router cannot find destination " << endl;
+			free(packet);
+			return;
+		}
+	}
+	else if(protocol_type == P_LS) {
+		//TODO
+	}
 
 }
+
+
+void RoutingProtocolImpl::handle_send_data(unsigned short port, void* packet, unsigned short size){
+
+	sys->send(port, packet, size);
+
+}
+
 
 void RoutingProtocolImpl::handle_ping_packet(unsigned short port, void* packet, unsigned short size){
 	/* Change the packet type to PONG */

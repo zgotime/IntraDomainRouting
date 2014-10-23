@@ -72,7 +72,7 @@ class RoutingProtocolImpl : public RoutingProtocol {
 	
 	void handle_invalid_protocol_type();
 	
-	void handle_data_packet();
+	void handle_data_packet(unsigned short port, void* packet, unsigned short size);
 	
 	void handle_ping_packet(unsigned short port, void* packet, unsigned short size);
 	
@@ -85,6 +85,8 @@ class RoutingProtocolImpl : public RoutingProtocol {
 	void handle_dv_stack();
 	
 	void handle_invalid_packet();
+
+	void handle_send_data(unsigned short port, void* packet, unsigned short size);
 
  private:
     
