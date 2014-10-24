@@ -194,6 +194,7 @@ void RoutingProtocolImpl::handle_ping_alarm(){
 	/* Iteratively ping */
 	sys->set_alarm(this,PING_INTERVAL,(void*)PING_ALARM);
 
+	cout << "Router: "<< router_id<<" FINISHED PING ALARM " << endl;
 }
 
 void RoutingProtocolImpl::handle_ls_update_alarm(){
@@ -655,7 +656,7 @@ void RoutingProtocolImpl::handle_pong_packet(unsigned short port, void* packet){
 		handle_dv_stack();
 	}
 	else if(protocol_type==P_LS){
-		// TO DO
+	
 		bool change_flag = false; // Nothing changed yet
 
 		/* Check if the neighbor node is in the ls table/ own entry */
@@ -759,12 +760,14 @@ void RoutingProtocolImpl::handle_ls_packet(unsigned short port, void* packet, un
 
 	/* Get the number of entries in the LS packet */
 	int num_ls_info = (int)((size - 12) / 4);
+
+	cout << "Router: " << router_id << " recieved a packet from: " << source_router_id << " with " << num_ls_info << " entries" << endl;
 	
 	/* Corner case, the ls_packet could be coming from the router itself and is outdated! */
 	if (source_router_id != router_id){
 		/* Loop through all the entries in the packet and update the ls_info */
 		for (int i = 0; i < num_ls_info; i++){
-			// TODO!
+
 			unsigned short node_id = (unsigned short)ntohs(*(unsigned short*)((char*)packet + 12 + i * 4)); // Node id in packet
 			unsigned short node_cost = (unsigned short)ntohs(*(unsigned short*)((char*)packet + 14 + i * 4)); // Node cost to the node id
 
@@ -844,20 +847,24 @@ void RoutingProtocolImpl::handle_ls_stack(){
 	/* The map in the LSP */
 	map<unsigned short, unsigned short> LSP_map = ls_i.LSP;
 	
+	/* Record the sequence number */
+	*(unsigned int*)stack_data = (unsigned int)htons(sequence);
+
 	/* Recording the loop num */
 	int i = 0;
 	/* Loop through the map and put them into the data to send */
 	for (std::map<unsigned short, unsigned short>::iterator it = LSP_map.begin(); it != LSP_map.end();it++){
-		*(unsigned short*)(stack_data + i * 4) = (unsigned short)htons(it->first);
-		*(unsigned short*)(stack_data + 2 + i * 4) = (unsigned short)htons(it->second);
+		*(unsigned short*)(stack_data +4 + i * 4) = (unsigned short)htons(it->first);
+		*(unsigned short*)(stack_data + 6 + i * 4) = (unsigned short)htons(it->second);
 		i++;
 	}
+	cout << "Router: " << router_id << " sending ls_packet with: " << i << " entries" <<endl;
 	
 	/* Send the update to every other ports */
 	for (int j = 0; j<num_ports; j++){
 		Port_Status port_s = port_status_list[j];
 		/* We need to fill the first 8 bytes */
-		char * packet = (char *)malloc(entry_size + 8);
+		char * packet = (char *)malloc(entry_size + 12);
 
 		/* First 1 byte */
 		*(ePacketType*)packet = LS;
@@ -873,10 +880,10 @@ void RoutingProtocolImpl::handle_ls_stack(){
 		/* Fifth 2 bytes ignored */
 
 		/* Sixth for data, copy the */
-		memcpy(packet + 8, stack_data, entry_size);
+		memcpy(packet + 8, stack_data, entry_size+4);
 
 		/* Send the packet */
-		sys->send((unsigned short)j, packet, entry_size + 8);
+		sys->send((unsigned short)j, packet, entry_size + 12);
 		
 	}
 
@@ -914,6 +921,12 @@ void RoutingProtocolImpl::handle_compute_ls_path(){
 		}
 		/* Add the node to unvisited nodes */
 		unvisited_nodes.insert(node_v);
+	}
+
+
+	cout << "Unvisited Nodes are : " << endl;
+	for (std::set<unsigned short>::iterator it = unvisited_nodes.begin(); it != unvisited_nodes.end(); it++){
+		cout << "Node: " << *it << endl;
 	}
 	
 	while (!unvisited_nodes.empty()){
@@ -973,6 +986,11 @@ void RoutingProtocolImpl::handle_compute_ls_path(){
 			}
 		}
 
+	}
+
+	cout << "The computed LS path: " << endl;
+	for (std::map<unsigned short, unsigned short>::iterator it = distance_to_start.begin(); it != distance_to_start.end();it++){
+		cout << "Node: " << it->first << " with cost: " << it->second << endl;
 	}
 
 }
