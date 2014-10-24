@@ -197,6 +197,49 @@ void RoutingProtocolImpl::handle_ping_alarm(){
 
 void RoutingProtocolImpl::handle_ls_update_alarm(){
 
+	/* Get the number of entries of this router */
+	unsigned short num_ls_info = (unsigned short) ls_table[router_id].LSP.size();
+
+	/* Get the sequence number */
+	unsigned int sequence = ls_table[router_id].sequence;
+
+	/* Malloc the forwaring packet (add the size of sequence and header stuff) */
+	char* packet = (char*)malloc(12+num_ls_info*4);
+
+	/* First set the packet type */
+	*(ePacketType*)packet = LS;
+
+	/* Then set the size */
+	*(unsigned short*)(packet + 2) = num_ls_info;
+
+	/* Set the source ID */
+	*(unsigned short*)(packet + 4) = router_id;
+
+	/* Set the sequence number */
+	*(unsigned short*)(packet + 8) = sequence;
+
+	/* Loop through all entries in the packet and paste the LSP entries */
+	int i = 0;
+
+	for (std::map<unsigned short, unsigned short>::iterator it = ls_table[router_id].LSP.begin(); it != ls_table[router_id].LSP.end();it++){
+		*(unsigned short*)(packet + 12 + i * 4) = it->first;
+		*(unsigned short*)(packet + 14 + i * 4) = it->second;
+	}
+
+	/* Flood the packet to all other ports of this node */
+	for (int j = 0; j < num_ports; j++){
+		/* For each port, allocate a new packet */
+		void* port_packet = malloc(12+num_ls_info*4);
+		memcpy(port_packet, packet, 12 + num_ls_info * 4);
+		sys->send(j, packet, 12+num_ls_info*4);
+		
+
+	}
+
+	/* Free the original packet for copy purpose */
+	free(packet);
+
+
 }
 
 void RoutingProtocolImpl::handle_dv_update_alarm(){
@@ -260,6 +303,37 @@ void RoutingProtocolImpl::handle_dv_refresh_alarm(){
 }
 
 void RoutingProtocolImpl::handle_ls_refresh_alarm(){
+	/* Check for every LS entry's refresh time, erase it if any of those has expired */
+
+	bool change_flag = false;;
+	for (std::map<unsigned short, LS_Info>::iterator it = ls_table.begin(); it != ls_table.end();it++){
+		/* Check if the entry for the router itself has expired, wierd case */
+		if (it->first==router_id){
+			if (it->second.expire_time - sys->time()<0)
+			{
+				LS_Info ls_i;
+				ls_i.expire_time = sys->time() + LS_MAX_TIMEOUT;
+				ls_i.sequence = LS_SEQUENCE;
+				LS_SEQUENCE++; // Different entry 
+				change_flag = true;
+			}
+		}
+		else{
+			if (it->second.expire_time-sys->time()<0){
+				/* Just simply erase it */
+				ls_table.erase(it->first);
+				change_flag = true;
+			}
+
+		}
+
+	}
+
+	if(change_flag==true){
+		/* TO DO COMPUTE PATH */
+	}
+
+	/* Recompute its own routing table */
 }
 
 void RoutingProtocolImpl::handle_port_refresh_alarm(){
@@ -360,14 +434,9 @@ void RoutingProtocolImpl::handle_data_packet(unsigned short port, void* packet, 
 				}
 				else{
 
-
-					
-
 					/* It can get the next hop, then pass the data*/
 
 					unsigned short next_hop = dv_table[dest_id].next_hop;
-
-					
 					
 					/* Remember to change the source router ID */
 					*(unsigned short*)((char *)packet + 4) = router_id;
@@ -380,9 +449,6 @@ void RoutingProtocolImpl::handle_data_packet(unsigned short port, void* packet, 
 
 				return;
 			}
-			
-
-			
 
 		}
 
@@ -616,7 +682,7 @@ void RoutingProtocolImpl::handle_ls_packet(unsigned short port, void* packet, un
 	/* Get the sequence ID */
 	unsigned int sequence = (unsigned int) ntohs(*(unsigned int*)((char*)packet +8)) ;
 
-	/* Get the number of entries in the LS packet*/
+	/* Get the number of entries in the LS packet */
 	int num_ls_info = (int)((size - 12) / 4);
 	
 	
@@ -735,6 +801,14 @@ void RoutingProtocolImpl::handle_ls_stack(){
 
 	/* After sending the data we free the original data */
 	free(stack_data);
+
+
+}
+
+
+void RoutingProtocolImpl::handle_compute_ls_path(){
+	/* Computes the ls path based on current info, uses Dijkstra's algorithm */
+
 
 
 }

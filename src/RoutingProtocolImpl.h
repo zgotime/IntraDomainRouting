@@ -93,6 +93,8 @@ class RoutingProtocolImpl : public RoutingProtocol {
 	
 	void handle_invalid_packet();
 
+	void handle_compute_ls_path();
+
 	void handle_send_data(unsigned short port, void* packet, unsigned short size);
 
  private:
