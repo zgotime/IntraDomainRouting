@@ -139,6 +139,7 @@ class RoutingProtocolImpl : public RoutingProtocol {
 	std::map<unsigned short, LS_Info> ls_table;
 	std::stack<LS_Info> ls_stack;
 
+	std::map<unsigned short,unsigned short> ls_mapping;
 	
 	Node *sys; // To store Node object; used to access GSR9999 interfaces 
 	
