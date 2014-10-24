@@ -133,9 +133,9 @@ void RoutingProtocolImpl::recv(unsigned short port, void *packet, unsigned short
   }
   
   char packet_type = *(char*) packet;
-  cout << "RECV: Router: " << router_id << " received packet at " << sys->time()/1000.0<<endl;
-  cout << "Packet size: "<< packet_size << endl;
-  cout << "Packet type: " << (unsigned short)packet_type << endl;
+  // cout << "RECV: Router: " << router_id << " received packet at " << sys->time()/1000.0<<endl;
+  // cout << "Packet size: "<< packet_size << endl;
+  // cout << "Packet type: " << (unsigned short)packet_type << endl;
   
   switch(packet_type){
 	case DATA:
@@ -185,16 +185,13 @@ void RoutingProtocolImpl::handle_ping_alarm(){
 		
 		/* Sixth(last) 4 bytes for the PING time data */
 		* (unsigned int*) (packet+8) = (unsigned int) htonl(sys->time());
-		cout << "4" << endl;
 		sys->send((unsigned short)i,packet,ping_packet_size);
-		cout << "Router: " << router_id << " send PING at " << sys->time() << endl;
 	}
 
 
 	/* Iteratively ping */
 	sys->set_alarm(this,PING_INTERVAL,(void*)PING_ALARM);
 
-	cout << "Router: "<< router_id<<" FINISHED PING ALARM " << endl;
 }
 
 void RoutingProtocolImpl::handle_ls_update_alarm(){
@@ -242,8 +239,6 @@ void RoutingProtocolImpl::handle_ls_update_alarm(){
 		void* port_packet = malloc(12+num_ls_info*4);
 		memcpy(port_packet, packet, 12 + num_ls_info * 4);
 		
-		cout << "Router: " << router_id << "is updating ls_entry!" << endl;
-		cout << "5" << endl;
 		sys->send(j, port_packet, 12+num_ls_info*4);
 		
 
@@ -301,7 +296,6 @@ void RoutingProtocolImpl::handle_dv_refresh_alarm(){
 		unsigned short current_router = it->first;
 		DV_Info current_info = it->second;
 		if((current_info.expire_time-sys->time())<0){
-			cout<< "Router: "<<current_router<<" time-out"<<endl;
 			/* Notify the neighbor about this time out for poison reverse*/
 			current_info.cost = USHRT_MAX;
 			dv_stack.push(current_info);
@@ -317,7 +311,6 @@ void RoutingProtocolImpl::handle_dv_refresh_alarm(){
 
 void RoutingProtocolImpl::handle_ls_refresh_alarm(){
 
-	cout << "Router: " << router_id << " is refreshing LS status at: " << sys->time() << endl;
 	/* Check for every LS entry's refresh time, erase it if any of those has expired */
 
 	bool change_flag = false;;
@@ -352,11 +345,9 @@ void RoutingProtocolImpl::handle_ls_refresh_alarm(){
 
 	sys->set_alarm(this,LS_REFRESH_RATE,(void*)LS_REFRESH_ALARM);
 
-	cout << "Router: " << router_id << " finished refreshing LS status at: " << sys->time() << endl;
 }
 
 void RoutingProtocolImpl::handle_port_refresh_alarm(){
-	cout << "Router: " << router_id << " refreshing port status at: " << sys->time() << endl;
 
 	/* Seperate the cases for DV and LS */
 	if (protocol_type == P_DV){
@@ -423,7 +414,6 @@ void RoutingProtocolImpl::handle_port_refresh_alarm(){
 	/* Do a refresh check for every port */
 	sys->set_alarm(this,PING_REFRESH_RATE,(void*)PORT_REFRESH_ALARM);
 
-	cout << "Router: " << router_id << " finished refreshing port status at: " << sys->time() << endl;
 }
 
 void RoutingProtocolImpl::handle_invalid_alarm(){
@@ -575,11 +565,6 @@ void RoutingProtocolImpl::handle_send_data(unsigned short port, void* packet, un
 
 
 void RoutingProtocolImpl::handle_ping_packet(unsigned short port, void* packet, unsigned short size){
-
-
-	cout << "Router: " << router_id << " recieved PING packet at port: " << port << endl;
-
-
 	
 	/* Change the packet type to PONG */
 	*(ePacketType*) packet = PONG;
@@ -597,16 +582,13 @@ void RoutingProtocolImpl::handle_ping_packet(unsigned short port, void* packet, 
 	/* Move the router's id to the source id */
 	*(unsigned short*)((char*)packet+4) = (unsigned short) htons(router_id);
 	/* Send the pong packet back to the sender */
-	cout << "1"<<endl;
 	sys->send(port,packet,size);
 
 
-	cout << "Router: " << router_id << " Sent back PING packet at port: " << port << endl;
 }
 
 void RoutingProtocolImpl::handle_pong_packet(unsigned short port, void* packet){
-	cout << "Router: " << router_id << " recieved PONG packet at port: " << port << endl;
-
+	
 	/* Check if the PONG packet belongs to the router */
 	unsigned short dest_id = *(unsigned short*)((char*)packet + 6);
 	if(!dest_id== router_id){
@@ -622,8 +604,6 @@ void RoutingProtocolImpl::handle_pong_packet(unsigned short port, void* packet){
 	port_status_list[port].neighbor_router_id = (int)neighbor_router_id;
 	port_status_list[port].expire_time = sys->time() + PONG_MAX_TIMEOUT; // Potential overflow!?!? time could be very large!
 	
-	cout << "CHECKING PORTS: " << port_status_list[port].neighbor_router_id << endl;
-
 	/* Update the neighbor router cost for DV and LS */
 	if(protocol_type==P_DV){
 		
@@ -832,7 +812,6 @@ void RoutingProtocolImpl::handle_ls_packet(unsigned short port, void* packet, un
 		if (j != port){
 			char* forward_packet = (char*) malloc(size);
 			memcpy(forward_packet, packet, size);
-			cout << "2" << endl;
 			sys->send(j,forward_packet,size);
 		}
 
@@ -907,10 +886,7 @@ void RoutingProtocolImpl::handle_ls_stack(){
 		/* Sixth for data, copy the */
 		memcpy(packet + 8, stack_data, entry_size+4);
 
-		cout << "Router: " << router_id << " sending ls_packet with type: " << (unsigned short)*(char*)packet << " type" << endl;
-
 		/* Send the packet */
-		cout << "3" << endl;
 		sys->send((unsigned short)j, packet, entry_size + 12);
 
 		
@@ -954,9 +930,9 @@ void RoutingProtocolImpl::handle_compute_ls_path(){
 	}
 
 
-	cout << "Unvisited Nodes are : " << endl;
+	//cout << "Unvisited Nodes are : " << endl;
 	for (std::set<unsigned short>::iterator it = unvisited_nodes.begin(); it != unvisited_nodes.end(); it++){
-		cout << "Node: " << *it << endl;
+		//cout << "Node: " << *it << endl;
 	}
 	
 	while (!unvisited_nodes.empty()){
@@ -1018,9 +994,9 @@ void RoutingProtocolImpl::handle_compute_ls_path(){
 
 	}
 
-	cout << "The computed LS path: " << endl;
+	// cout << "The computed LS path: " << endl;
 	for (std::map<unsigned short, unsigned short>::iterator it = distance_to_start.begin(); it != distance_to_start.end();it++){
-		cout << "Node: " << it->first << " with cost: " << it->second << endl;
+		//cout << "Node: " << it->first << " with cost: " << it->second << endl;
 	}
 
 }
