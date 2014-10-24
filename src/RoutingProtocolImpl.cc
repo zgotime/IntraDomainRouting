@@ -196,8 +196,9 @@ void RoutingProtocolImpl::handle_ping_alarm(){
 
 void RoutingProtocolImpl::handle_ls_update_alarm(){
 
+	/* Emit another update alarm */
+	sys->set_alarm(this, LS_UPDATE_INTERVAL, (void *) LS_UPDATE_ALARM);
 	
-
 	/* Get the number of entries of this router */
 	unsigned short num_ls_info = (unsigned short) ls_table[router_id].LSP.size();
 
@@ -206,10 +207,14 @@ void RoutingProtocolImpl::handle_ls_update_alarm(){
 		return;
 	}
 
+	/* Increment the sequence number for a new LSP */
+	ls_table[router_id].sequence = LS_SEQUENCE;
+	LS_SEQUENCE++;
+	
 	/* Get the sequence number */
 	unsigned int sequence = ls_table[router_id].sequence;
 
-	/* Malloc the forwaring packet (add the size of sequence and header stuff) */
+	/* Malloc the forwarding packet (add the size of sequence and header stuff) */
 	char* packet = (char*)malloc(12+num_ls_info*4);
 
 	/* First set the packet type */
@@ -246,8 +251,6 @@ void RoutingProtocolImpl::handle_ls_update_alarm(){
 
 	/* Free the original packet for copy purpose */
 	free(packet);
-
-
 }
 
 void RoutingProtocolImpl::handle_dv_update_alarm(){
@@ -295,7 +298,7 @@ void RoutingProtocolImpl::handle_dv_refresh_alarm(){
 	for(std::map<unsigned short, DV_Info>::iterator it = dv_table.begin();it!=dv_table.end();it++){
 		unsigned short current_router = it->first;
 		DV_Info current_info = it->second;
-		if((current_info.expire_time-sys->time())<0){
+		if((current_info.expire_time<sys->time())){
 			/* Notify the neighbor about this time out for poison reverse*/
 			current_info.cost = USHRT_MAX;
 			dv_stack.push(current_info);
@@ -315,9 +318,9 @@ void RoutingProtocolImpl::handle_ls_refresh_alarm(){
 
 	bool change_flag = false;;
 	for (std::map<unsigned short, LS_Info>::iterator it = ls_table.begin(); it != ls_table.end();it++){
-		/* Check if the entry for the router itself has expired, wierd case */
+		/* Check if the entry for the router itself has expired, weird case */
 		if (it->first==router_id){
-			if (it->second.expire_time - sys->time()<0)
+			if (it->second.expire_time < sys->time())
 			{
 				ls_table[router_id].expire_time = sys->time() + LS_MAX_TIMEOUT;
 				ls_table[router_id].sequence = LS_SEQUENCE;
@@ -328,9 +331,10 @@ void RoutingProtocolImpl::handle_ls_refresh_alarm(){
 			}
 		}
 		else{
-			if (it->second.expire_time-sys->time()<0){
+			if (it->second.expire_time < sys->time()){
 				/* Just simply erase it */
 				ls_table.erase(it->first);
+				cout<< "Router id: "<< router_id << " has found LS entry with router id " << it->first << " has timed out at time "<< sys->time() / 1000.0<< endl;
 				change_flag = true;
 			}
 
@@ -358,7 +362,7 @@ void RoutingProtocolImpl::handle_port_refresh_alarm(){
 
 			if (port_status_list[i].neighbor_router_id >= 0){
 				/* Compare time, erase the router id if exceed expire_time */
-				if (port_status_list[i].expire_time - sys->time() < 0){
+				if (port_status_list[i].expire_time < sys->time()){
 					/* Send Cost Infinity to prevent from poison reverse */
 					DV_Info dv_s = dv_table[port_status_list[i].neighbor_router_id];
 					dv_s.cost = USHRT_MAX;
@@ -390,11 +394,13 @@ void RoutingProtocolImpl::handle_port_refresh_alarm(){
 			if (port_status_list[i].neighbor_router_id>=0){
 
 				/* Check if expired */
-				if (port_status_list[i].expire_time - sys->time()<0){
+				if (port_status_list[i].expire_time < sys->time()){
 					/* Delete the node in entry, send the new LSP to everyone */
 					ls_table[router_id].LSP.erase(port_status_list[i].neighbor_router_id);
 					ls_table[router_id].sequence = LS_SEQUENCE;
 					LS_SEQUENCE++; // The entry has changed... 
+					cout<<"Router "<< router_id<< " find "<< port_status_list[i].neighbor_router_id << " has timed out at " << sys->time() / 1000.0 << endl;
+					port_status_list[i].neighbor_router_id = -1;
 					change_flag = true;
 				}
 
@@ -404,11 +410,13 @@ void RoutingProtocolImpl::handle_port_refresh_alarm(){
 
 		/* We've check the entry, refresh the time */
 		ls_table[router_id].expire_time = sys->time() + LS_MAX_TIMEOUT;
-		handle_ls_stack();
+		
 		/* There is change in the LSP */
 		if (change_flag==true){
+			ls_stack.push(ls_table[router_id]);
 			handle_compute_ls_path();
 		}
+		handle_ls_stack();
 
 	}
 	/* Do a refresh check for every port */
@@ -435,7 +443,10 @@ void RoutingProtocolImpl::handle_data_packet(unsigned short port, void* packet, 
 		/* When the port is originating from itself */
 		if (port == USHRT_MAX){
 
-			
+			cout << "The current routing table is " << endl;
+			for (std::map<unsigned short, unsigned short>::iterator it=ls_mapping.begin(); it != ls_mapping.end();it++) {
+				cout << "Destination: " << it->first << " through " << it->second << endl;
+			}
 			
 			/* Check if the packet is actually for itself, wierd case */
 			if (dest_id == router_id){
@@ -446,7 +457,7 @@ void RoutingProtocolImpl::handle_data_packet(unsigned short port, void* packet, 
 				/* If it is not itself, try to find the destination */
 				if (dv_table.find(dest_id) == dv_table.end()){
 					/* If the path is not stored in the table, cast it away */
-					cout << "Router: " << router_id << "tried to originate DATA packet router ID at time: " << sys->time() / 1000.0 << endl;
+					cout << "Router: " << router_id << " tried to originate DATA packet router ID at time: " << sys->time() / 1000.0 << endl;
 					cout << "Router cannot find destination" << endl;
 					free(packet);
 				
@@ -475,7 +486,7 @@ void RoutingProtocolImpl::handle_data_packet(unsigned short port, void* packet, 
 
 		if (dest_id == router_id){
 			/* The router has recieved the DATA packet */
-			cout << "Router: " << router_id << "received DATA packet router ID at time: " << sys->time() / 1000.0 << endl;
+			cout << "Router: " << router_id << " received DATA packet router ID at time: " << sys->time() / 1000.0 << endl;
 			free(packet);
 			return;
 		}
@@ -486,7 +497,7 @@ void RoutingProtocolImpl::handle_data_packet(unsigned short port, void* packet, 
 		}
 		else{
 			/* Else, the dv_table cannot find the destination*/
-			cout << "Router: " << router_id << "received DATA packet router ID at time: " << sys->time() / 1000.0 << endl;
+			cout << "Router: " << router_id << " received DATA packet router ID at time: " << sys->time() / 1000.0 << endl;
 			cout << "Router cannot find destination " << endl;
 			free(packet);
 			return;
@@ -499,6 +510,11 @@ void RoutingProtocolImpl::handle_data_packet(unsigned short port, void* packet, 
 		/* When the port is originating from itself */
 		if (port == USHRT_MAX){
 
+			cout << "The current routing table is " << endl;
+			for (std::map<unsigned short, unsigned short>::iterator it=ls_mapping.begin(); it != ls_mapping.end();it++) {
+				cout << "Destination: " << it->first << " through " << it->second << endl;
+			}
+		
 			/* Check if the packet is actually for itself, wierd case */
 			if (dest_id == router_id){
 				free(packet);
@@ -508,15 +524,17 @@ void RoutingProtocolImpl::handle_data_packet(unsigned short port, void* packet, 
 				/* If it is not itself, try to find the destination */
 				if (ls_mapping.find(dest_id) == ls_mapping.end()){
 					/* If the path is not stored in the ls_mapping, cast it away */
-					cout << "Router: " << router_id << "tried to originate DATA packet router ID at time: " << sys->time() / 1000.0 << endl;
+					cout << "Router: " << router_id << " tried to originate DATA packet to router ID "<< dest_id <<" at time: " << sys->time() / 1000.0 <<endl;
 					cout << "Router cannot find destination" << endl;
 					free(packet);
 				}
 				else{
 					/* It can get the next hop, then pass the data*/
+					cout << "Router: " << router_id << " tried to originate DATA packet to router ID "<< dest_id <<" at time: " << sys->time() / 1000.0 <<endl;
 
 					unsigned short next_hop = ls_mapping[dest_id];
 
+					cout<< "Next hop is "<< next_hop << endl;
 					/* Remember to change the source router ID */
 					*(unsigned short*)((char *)packet + 4) = router_id;
 
@@ -534,8 +552,8 @@ void RoutingProtocolImpl::handle_data_packet(unsigned short port, void* packet, 
 		/* Else, it is receiving the data */
 
 		if (dest_id == router_id){
-			/* The router has recieved the DATA packet */
-			cout << "Router: " << router_id << "received DATA packet router ID at time: " << sys->time() / 1000.0 << endl;
+			/* The router has received the DATA packet */
+			cout << "Router: " << router_id << " received DATA packet router ID at time: " << sys->time() / 1000.0 << endl;
 			free(packet);
 			return;
 		}
@@ -546,7 +564,7 @@ void RoutingProtocolImpl::handle_data_packet(unsigned short port, void* packet, 
 		}
 		else{
 			/* Else, the dv_table cannot find the destination*/
-			cout << "Router: " << router_id << "received DATA packet router ID at time: " << sys->time() / 1000.0 << endl;
+			cout << "Router: " << router_id << " received DATA packet router ID at time: " << sys->time() / 1000.0 << endl;
 			cout << "Router cannot find destination " << endl;
 			free(packet);
 			return;
@@ -558,7 +576,7 @@ void RoutingProtocolImpl::handle_data_packet(unsigned short port, void* packet, 
 
 
 void RoutingProtocolImpl::handle_send_data(unsigned short port, void* packet, unsigned short size){
-	cout << "port: " <<port <<"size: "<<size<< endl;
+	cout << "port: " <<port <<" size: "<<size<< endl;
 	sys->send(port, packet, size);
 	
 }
@@ -688,6 +706,9 @@ void RoutingProtocolImpl::handle_pong_packet(unsigned short port, void* packet){
 
 			// Else, nothing happens, same entry
 		}
+		
+		/* Store/Renew the mapping for neighbor to port */
+		hop_to_port[neighbor_router_id] = port;
 
 		handle_ls_stack();
 
@@ -765,57 +786,63 @@ void RoutingProtocolImpl::handle_ls_packet(unsigned short port, void* packet, un
 	/* Get the number of entries in the LS packet */
 	int num_ls_info = (int)((size - 12) / 4);
 
-	cout << "Router: " << router_id << " recieved a LS packet with size "<< size <<" from: " << source_router_id << " with " << num_ls_info << " entries" << endl;
+	cout << "Router: " << router_id << " received a LS packet with size "<< size <<" from: " << source_router_id << " with " << num_ls_info << " entries" << endl;
 	
 	/* Corner case, the ls_packet could be coming from the router itself and is outdated! */
 	if (source_router_id != router_id){
+	
+		/* Initialize the received LSP */
+		LS_Info ls_i;
+		ls_i.sequence = sequence;
+		ls_i.expire_time = sys->time() + LS_MAX_TIMEOUT;
+		
+		cout<<"Source router id: "<< source_router_id<<endl;
 		/* Loop through all the entries in the packet and update the ls_info */
 		for (int i = 0; i < num_ls_info; i++){
 
 			unsigned short node_id = (unsigned short)ntohs(*(unsigned short*)((char*)packet + 12 + i * 4)); // Node id in packet
 			unsigned short node_cost = (unsigned short)ntohs(*(unsigned short*)((char*)packet + 14 + i * 4)); // Node cost to the node id
 
-			LS_Info ls_i;
-			ls_i.expire_time = sys->time() + LS_MAX_TIMEOUT;
+			cout<<"Node "<<node_id<<" with cost "<< node_cost<<endl;
 			ls_i.LSP[node_id] = node_cost;
-			ls_i.sequence = LS_SEQUENCE;
-
-			if (ls_table.find(source_router_id) == ls_table.end()){
-				/* The current entry is not in the table, store it */
+		}
+		if (ls_table.find(source_router_id) == ls_table.end()){
+			cout<< "Before adding new entry, the table is " <<endl;
+			for (std::map<unsigned short, LS_Info>::iterator it = ls_table.begin(); it !=ls_table.end();it++) {
+				cout<<"Node "<< it->first <<endl;
+			}
+			/* The current entry is not in the table, store it */
+			ls_table[source_router_id] = ls_i;
+			cout<< "New entry "<<endl;
+			change_flag = true; // The entry is inserted
+		}
+		else{
+			unsigned short stored_sequence = ls_table[source_router_id].sequence;
+			if (stored_sequence < sequence){
+				/* In this case, they are two different sequences so we have to change it */
 				ls_table[source_router_id] = ls_i;
-				LS_SEQUENCE++; // Used one sequence number
-				
-				change_flag = true; // The entry is inserted
+				cout<< "Renewed entry"<<endl;
+				change_flag = true; // The entry is new
 			}
-			else{
-				unsigned short stored_sequence = ls_table[source_router_id].sequence;
-				if (stored_sequence != sequence){
-					/* In this case, they are two different sequences so we have to change it */
-					ls_table[source_router_id] = ls_i;
-					LS_SEQUENCE++; // Used one sequence number
-					change_flag = true; // The entry is new
-				}
-
-			}
-
 		}
 	}
 	
 	/* Recompute if there is change in the data */
 	if (change_flag == true){
 		handle_compute_ls_path();
-	}
-
-	/* After we have stored the packet information, we should forward towards all other ports */
-	for (int j = 0; j < num_ports; j++){
-		/* We would forward the packet to every other ports except for the incoming port */
-		if (j != port){
-			char* forward_packet = (char*) malloc(size);
-			memcpy(forward_packet, packet, size);
-			sys->send(j,forward_packet,size);
+		/* After we have stored the packet information, we should forward towards all other ports */
+		/* Only flood the packet when the sequence number is not previously seen. */
+		for (int j = 0; j < num_ports; j++){
+			/* We would forward the packet to every other ports except for the incoming port */
+			if (j != port){
+				char* forward_packet = (char*) malloc(size);
+				memcpy(forward_packet, packet, size);
+				sys->send(j,forward_packet,size);
+			}
 		}
-
 	}
+
+	
 
 	/* Free the packet sent to us */
 	free(packet);
@@ -904,6 +931,15 @@ void RoutingProtocolImpl::handle_ls_stack(){
 
 
 void RoutingProtocolImpl::handle_compute_ls_path(){
+	
+	cout<< "The cost to each neighbor is: "<< endl;
+	for (std::map<unsigned short, LS_Info>::iterator it = ls_table.begin(); it != ls_table.end(); it++) {
+		cout<<"Node "<<it->first << " with lsp: "<< endl;
+		for (std::map<unsigned short, unsigned short>::iterator it2 = it->second.LSP.begin(); it2 != it->second.LSP.end(); it2++){
+			cout << "Neighbor " << it2->first << " with cost " << it2->second << endl;
+		}
+	}
+
 	/* Computes the ls path based on current info, uses Dijkstra's algorithm */
 	
 	/* Initialize the distance map relative to this router */
@@ -959,6 +995,11 @@ void RoutingProtocolImpl::handle_compute_ls_path(){
 			if (unvisited_nodes.find(neighbor_node)!=unvisited_nodes.end()){
 				/* Calculate the alternative cost */
 				unsigned short alt_cost = distance_to_start[min_node] + ls_table[min_node].LSP[neighbor_node];
+				if (distance_to_start[min_node] == USHRT_MAX) {
+					/* If the minimum node is unreachable, the alt_cost might overflow and cause infinite
+					 while loop getting the hop. */
+					alt_cost = USHRT_MAX;
+				}
 				/* Compare with the stored value */
 				if (alt_cost < distance_to_start[neighbor_node]){
 					/* If the cost is smaller, then it means the neighbor node is better off choosing the path through min_ node */
@@ -971,14 +1012,14 @@ void RoutingProtocolImpl::handle_compute_ls_path(){
 		}
 	}
 
+	/* We should clear all the mapping before */
+	ls_mapping.clear();
 	/* Get the next_hop for each destination according to previous_node set */
 	for (std::map<unsigned short, unsigned short>::iterator it = distance_to_start.begin(); it != distance_to_start.end();it++){
 		/* Check that it is not this router itself */
 		if (it->first != router_id){
 			/* Check that the distance is not infinity (not reachable) for disruption in links */
 			if (it->second != USHRT_MAX){
-				/* We should clear all the mapping before */
-				ls_mapping.clear();
 				/* Initialize the next_hop to be infinity */
 				unsigned short previous_hop = it->first;
 				unsigned short next_hop = previous_node[previous_hop];
@@ -994,9 +1035,14 @@ void RoutingProtocolImpl::handle_compute_ls_path(){
 
 	}
 
-	// cout << "The computed LS path: " << endl;
+	cout << "The computed LS path at time " <<sys->time() << ": " << endl;
 	for (std::map<unsigned short, unsigned short>::iterator it = distance_to_start.begin(); it != distance_to_start.end();it++){
-		//cout << "Node: " << it->first << " with cost: " << it->second << endl;
+		cout << "Node: " << it->first << " with cost: " << it->second << endl;
+	}
+	
+	cout << "The computed routing table is " << endl;
+	for (std::map<unsigned short, unsigned short>::iterator it=ls_mapping.begin(); it != ls_mapping.end();it++) {
+		cout << "Destination: " << it->first << " through " << it->second << endl;
 	}
 
 }
