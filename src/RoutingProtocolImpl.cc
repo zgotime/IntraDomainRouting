@@ -623,16 +623,119 @@ void RoutingProtocolImpl::handle_ls_packet(unsigned short port, void* packet, un
 	/* Loop through all the entries in the packet and update the dv_info */
 	for (int i = 0; i< num_ls_info; i++){
 		// TODO!
+		unsigned short node_id = (unsigned short)ntohs(*(unsigned short*)((char*) packet+12+i*4)); // Node id in packet
+		unsigned short node_cost = (unsigned short)ntohs(*(unsigned short*)((char*)packet+14+i*4)); // Node cost to the node id
+
+		LS_Info ls_i;
+		ls_i.expire_time = sys->time() + LS_MAX_TIMEOUT;
+		ls_i.LSP[node_id] = node_cost;
+		ls_i.sequence = LS_SEQUENCE;
+
+		if (ls_table.find(source_router_id)==ls_table.end()){
+			/* The current entry is not in the table, store it */
+			ls_table[source_router_id] = ls_i;
+			LS_SEQUENCE++; // Used one sequence number
+		}
+		else{
+			unsigned short stored_sequence = ls_table[source_router_id].sequence;
+			if (stored_sequence!=sequence){
+				/* In this case, they are two different sequences so we have to change it */
+				ls_table[source_router_id] = ls_i;
+				LS_SEQUENCE++; // Used one sequence number
+			}
+
+		}
+
 	}
 
-	handle_ls_stack();
 
+	/* After we have stored the packet information, we should forward towards all other ports */
+	for (int j = 0; j < num_ports; j++){
+		/* We would forward the packet to every other ports except for the incoming port */
+		if (j != port){
+			void* forward_packet = malloc(size);
+			memcpy(forward_packet, packet, size);
+			sys->send(j,packet,size);
+		}
+
+	}
+
+	/* Free the packet sent to us */
 	free(packet);
 
 }
 
 
 void RoutingProtocolImpl::handle_ls_stack(){
+	
+	/* Do nothing if the stack is empty */
+	if (ls_stack.empty()){
+		return;
+	}
+
+
+	/* Actually, ls_stack should just contain one entry most (only self-entry) */
+	if (ls_stack.size() != 1){
+		cerr << "LS Stack error: More than one entry in the stack! " << endl;
+	}
+
+	/* Get the LSP List */
+	LS_Info ls_i = ls_stack.top();
+
+	/* Get the sequence number */
+	unsigned int sequence = ls_i.sequence;
+
+	/* Get the entry size containing data */
+	unsigned short entry_size = ls_i.LSP.size()*4;
+	
+	/* +4 for the sequence number, we need to put it in */
+	char * stack_data = (char *)malloc(entry_size+4);
+	
+	/* The map in the LSP */
+	map<unsigned short, unsigned short> LSP_map = ls_i.LSP;
+	
+	/* Recording the loop num */
+	int i = 0;
+	/* Loop through the map and put them into the data to send */
+	for (std::map<unsigned short, unsigned short>::iterator it = LSP_map.begin(); it != LSP_map.end();it++){
+		*(unsigned short*)(stack_data + i * 4) = (unsigned short)htons(it->first);
+		*(unsigned short*)(stack_data + 2 + i * 4) = (unsigned short)htons(it->second);
+		i++;
+	}
+	
+	/* Send the update to every other ports */
+	for (int j = 0; j<num_ports; j++){
+		Port_Status port_s = port_status_list[j];
+		/* We need to fill the first 8 bytes */
+		char * packet = (char *)malloc(entry_size + 8);
+
+		/* First 1 byte */
+		*(ePacketType*)packet = LS;
+
+		/* Second 1 byte reserved.. */
+
+		/* Third 2 bytes for the packet size */
+		*(unsigned short*)(packet + 2) = (unsigned short)htons(entry_size + 8);
+
+		/* Fourth 2 bytes for the source id */
+		*(unsigned short*)(packet + 4) = (unsigned short)htons(router_id);
+
+		/* Fifth 2 bytes ignored */
+
+		/* Sixth for data, copy the */
+		memcpy(packet + 8, stack_data, entry_size);
+
+		/* Send the packet */
+		sys->send((unsigned short)j, packet, entry_size + 8);
+		
+	}
+
+	/* Finished dealing with the entry */
+	ls_stack.pop();
+
+	/* After sending the data we free the original data */
+	free(stack_data);
+
 
 }
 
