@@ -126,7 +126,7 @@ void RoutingProtocolImpl::recv(unsigned short port, void *packet, unsigned short
 
   /* Compare the size value in the packet with the method input value */
   
-  if(!packet_size==size){
+  if(packet_size!=size){
 	cerr << "RECV ERROR: Router: " << router_id << " received packet with wrong packet size at " <<sys->time()/1000.0 <<endl;
 	free(packet);
 	return;
@@ -185,7 +185,7 @@ void RoutingProtocolImpl::handle_ping_alarm(){
 		
 		/* Sixth(last) 4 bytes for the PING time data */
 		* (unsigned int*) (packet+8) = (unsigned int) htonl(sys->time());
-		
+		cout << "4" << endl;
 		sys->send((unsigned short)i,packet,ping_packet_size);
 		cout << "Router: " << router_id << " send PING at " << sys->time() << endl;
 	}
@@ -198,6 +198,8 @@ void RoutingProtocolImpl::handle_ping_alarm(){
 }
 
 void RoutingProtocolImpl::handle_ls_update_alarm(){
+
+	
 
 	/* Get the number of entries of this router */
 	unsigned short num_ls_info = (unsigned short) ls_table[router_id].LSP.size();
@@ -217,20 +219,20 @@ void RoutingProtocolImpl::handle_ls_update_alarm(){
 	*(ePacketType*)packet = LS;
 
 	/* Then set the size */
-	*(unsigned short*)(packet + 2) = (unsigned short) (12+num_ls_info*4);
+	*(unsigned short*)(packet + 2) = (unsigned short)htons((12+num_ls_info*4));
 
 	/* Set the source ID */
-	*(unsigned short*)(packet + 4) = router_id;
+	*(unsigned short*)(packet + 4) = htons(router_id);
 
 	/* Set the sequence number */
-	*(unsigned short*)(packet + 8) = sequence;
+	*(unsigned int*)(packet + 8) = htonl(sequence);
 
 	/* Loop through all entries in the packet and paste the LSP entries */
 	int i = 0;
 
 	for (std::map<unsigned short, unsigned short>::iterator it = ls_table[router_id].LSP.begin(); it != ls_table[router_id].LSP.end();it++){
-		*(unsigned short*)(packet + 12 + i * 4) = it->first;
-		*(unsigned short*)(packet + 14 + i * 4) = it->second;
+		*(unsigned short*)(packet + 12 + i * 4) = htons(it->first);
+		*(unsigned short*)(packet + 14 + i * 4) = htons(it->second);
 		i++;
 	}
 
@@ -239,6 +241,9 @@ void RoutingProtocolImpl::handle_ls_update_alarm(){
 		/* For each port, allocate a new packet */
 		void* port_packet = malloc(12+num_ls_info*4);
 		memcpy(port_packet, packet, 12 + num_ls_info * 4);
+		
+		cout << "Router: " << router_id << "is updating ls_entry!" << endl;
+		cout << "5" << endl;
 		sys->send(j, port_packet, 12+num_ls_info*4);
 		
 
@@ -592,7 +597,7 @@ void RoutingProtocolImpl::handle_ping_packet(unsigned short port, void* packet, 
 	/* Move the router's id to the source id */
 	*(unsigned short*)((char*)packet+4) = (unsigned short) htons(router_id);
 	/* Send the pong packet back to the sender */
-	
+	cout << "1"<<endl;
 	sys->send(port,packet,size);
 
 
@@ -775,12 +780,12 @@ void RoutingProtocolImpl::handle_ls_packet(unsigned short port, void* packet, un
 	unsigned short source_router_id = (unsigned short)ntohs(*(unsigned short*)((char*)packet + 4));
 	
 	/* Get the sequence ID */
-	unsigned int sequence = (unsigned int) ntohs(*(unsigned int*)((char*)packet +8)) ;
+	unsigned int sequence = (unsigned int) ntohl(*(unsigned int*)((char*)packet +8)) ;
 
 	/* Get the number of entries in the LS packet */
 	int num_ls_info = (int)((size - 12) / 4);
 
-	cout << "Router: " << router_id << " recieved a packet from: " << source_router_id << " with " << num_ls_info << " entries" << endl;
+	cout << "Router: " << router_id << " recieved a LS packet with size "<< size <<" from: " << source_router_id << " with " << num_ls_info << " entries" << endl;
 	
 	/* Corner case, the ls_packet could be coming from the router itself and is outdated! */
 	if (source_router_id != router_id){
@@ -825,9 +830,10 @@ void RoutingProtocolImpl::handle_ls_packet(unsigned short port, void* packet, un
 	for (int j = 0; j < num_ports; j++){
 		/* We would forward the packet to every other ports except for the incoming port */
 		if (j != port){
-			void* forward_packet = malloc(size);
+			char* forward_packet = (char*) malloc(size);
 			memcpy(forward_packet, packet, size);
-			sys->send(j,packet,size);
+			cout << "2" << endl;
+			sys->send(j,forward_packet,size);
 		}
 
 	}
@@ -867,7 +873,7 @@ void RoutingProtocolImpl::handle_ls_stack(){
 	map<unsigned short, unsigned short> LSP_map = ls_i.LSP;
 	
 	/* Record the sequence number */
-	*(unsigned int*)stack_data = (unsigned int)htons(sequence);
+	*(unsigned int*)stack_data = (unsigned int)htonl (sequence);
 
 	/* Recording the loop num */
 	int i = 0;
@@ -891,7 +897,7 @@ void RoutingProtocolImpl::handle_ls_stack(){
 		/* Second 1 byte reserved.. */
 
 		/* Third 2 bytes for the packet size */
-		*(unsigned short*)(packet + 2) = (unsigned short)htons(entry_size + 8);
+		*(unsigned short*)(packet + 2) = (unsigned short)htons(entry_size + 12);
 
 		/* Fourth 2 bytes for the source id */
 		*(unsigned short*)(packet + 4) = (unsigned short)htons(router_id);
@@ -901,8 +907,13 @@ void RoutingProtocolImpl::handle_ls_stack(){
 		/* Sixth for data, copy the */
 		memcpy(packet + 8, stack_data, entry_size+4);
 
+		cout << "Router: " << router_id << " sending ls_packet with type: " << (unsigned short)*(char*)packet << " type" << endl;
+
 		/* Send the packet */
+		cout << "3" << endl;
 		sys->send((unsigned short)j, packet, entry_size + 12);
+
+		
 		
 	}
 
