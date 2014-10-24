@@ -202,6 +202,11 @@ void RoutingProtocolImpl::handle_ls_update_alarm(){
 	/* Get the number of entries of this router */
 	unsigned short num_ls_info = (unsigned short) ls_table[router_id].LSP.size();
 
+	/* If there is no neighbors, no need to send it */
+	if (num_ls_info == 0){
+		return;
+	}
+
 	/* Get the sequence number */
 	unsigned int sequence = ls_table[router_id].sequence;
 
@@ -212,7 +217,7 @@ void RoutingProtocolImpl::handle_ls_update_alarm(){
 	*(ePacketType*)packet = LS;
 
 	/* Then set the size */
-	*(unsigned short*)(packet + 2) = num_ls_info;
+	*(unsigned short*)(packet + 2) = (unsigned short) (12+num_ls_info*4);
 
 	/* Set the source ID */
 	*(unsigned short*)(packet + 4) = router_id;
@@ -226,6 +231,7 @@ void RoutingProtocolImpl::handle_ls_update_alarm(){
 	for (std::map<unsigned short, unsigned short>::iterator it = ls_table[router_id].LSP.begin(); it != ls_table[router_id].LSP.end();it++){
 		*(unsigned short*)(packet + 12 + i * 4) = it->first;
 		*(unsigned short*)(packet + 14 + i * 4) = it->second;
+		i++;
 	}
 
 	/* Flood the packet to all other ports of this node */
@@ -233,7 +239,7 @@ void RoutingProtocolImpl::handle_ls_update_alarm(){
 		/* For each port, allocate a new packet */
 		void* port_packet = malloc(12+num_ls_info*4);
 		memcpy(port_packet, packet, 12 + num_ls_info * 4);
-		sys->send(j, packet, 12+num_ls_info*4);
+		sys->send(j, port_packet, 12+num_ls_info*4);
 		
 
 	}
@@ -305,6 +311,8 @@ void RoutingProtocolImpl::handle_dv_refresh_alarm(){
 }
 
 void RoutingProtocolImpl::handle_ls_refresh_alarm(){
+
+	cout << "Router: " << router_id << " is refreshing LS status at: " << sys->time() << endl;
 	/* Check for every LS entry's refresh time, erase it if any of those has expired */
 
 	bool change_flag = false;;
@@ -337,10 +345,14 @@ void RoutingProtocolImpl::handle_ls_refresh_alarm(){
 		handle_compute_ls_path();
 	}
 
+	sys->set_alarm(this,LS_REFRESH_RATE,(void*)LS_REFRESH_ALARM);
+
+	cout << "Router: " << router_id << " finished refreshing LS status at: " << sys->time() << endl;
 }
 
 void RoutingProtocolImpl::handle_port_refresh_alarm(){
-	
+	cout << "Router: " << router_id << " refreshing port status at: " << sys->time() << endl;
+
 	/* Seperate the cases for DV and LS */
 	if (protocol_type == P_DV){
 
@@ -405,6 +417,8 @@ void RoutingProtocolImpl::handle_port_refresh_alarm(){
 	}
 	/* Do a refresh check for every port */
 	sys->set_alarm(this,PING_REFRESH_RATE,(void*)PORT_REFRESH_ALARM);
+
+	cout << "Router: " << router_id << " finished refreshing port status at: " << sys->time() << endl;
 }
 
 void RoutingProtocolImpl::handle_invalid_alarm(){
@@ -557,7 +571,8 @@ void RoutingProtocolImpl::handle_send_data(unsigned short port, void* packet, un
 
 void RoutingProtocolImpl::handle_ping_packet(unsigned short port, void* packet, unsigned short size){
 
-	
+
+	cout << "Router: " << router_id << " recieved PING packet at port: " << port << endl;
 
 
 	
@@ -580,9 +595,13 @@ void RoutingProtocolImpl::handle_ping_packet(unsigned short port, void* packet, 
 	
 	sys->send(port,packet,size);
 
+
+	cout << "Router: " << router_id << " Sent back PING packet at port: " << port << endl;
 }
 
 void RoutingProtocolImpl::handle_pong_packet(unsigned short port, void* packet){
+	cout << "Router: " << router_id << " recieved PONG packet at port: " << port << endl;
+
 	/* Check if the PONG packet belongs to the router */
 	unsigned short dest_id = *(unsigned short*)((char*)packet + 6);
 	if(!dest_id== router_id){
