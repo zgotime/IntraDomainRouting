@@ -61,40 +61,58 @@ class RoutingProtocolImpl : public RoutingProtocol {
     // a neighbour router.
 	
 	
+	/* Will send ping to every other ports */
 	void handle_ping_alarm();
 	
+	/* Will flood ls updates */
 	void handle_ls_update_alarm();
 	
+	/* Will send dv_updates to its neighbors stored */
 	void handle_dv_update_alarm();
 	
+	/* Will refresh the dv entries and remove time-outs and notify others */
 	void handle_dv_refresh_alarm();
 	
+	/* Will refresh the ls entries and remove the time-outs and notify others */
 	void handle_ls_refresh_alarm();
 	
+	/* WIll refresh the port status and remove the time_outs and update the data structures associated with it */
 	void handle_port_refresh_alarm();
 	
+	/* Handle invalid alarm */
 	void handle_invalid_alarm();
 	
+	/* Handle invalid protocol type */
 	void handle_invalid_protocol_type();
 	
+	/* Will deal with the received data packets */
 	void handle_data_packet(unsigned short port, void* packet, unsigned short size);
 	
+	/* Will deal with the received ping packets */
 	void handle_ping_packet(unsigned short port, void* packet, unsigned short size);
 	
+	/* Will deal with the received pong packets */
 	void handle_pong_packet(unsigned short port, void* packet);
 	
+	/* Will deal with the received ls packets */
 	void handle_ls_packet(unsigned short port, void* packet, unsigned short size);
 	
+	/* Will push out the LSP stored in ls_stack */
 	void handle_ls_stack();
 
+	/* WIll deal with the received dv packets */
 	void handle_dv_packet(unsigned short port, void* packet,unsigned short size);
 	
+	/* Will push out the DV info stored in dv_stack */
 	void handle_dv_stack();
 	
-	void handle_invalid_packet();
+	/* Will deal with invalid packet types */
+	void handle_invalid_packet(void* packet);
 
+	/* Will recompute the ls path */
 	void handle_compute_ls_path();
 
+	/* Will send the data packet accordingly */
 	void handle_send_data(unsigned short port, void* packet, unsigned short size);
 
  private:

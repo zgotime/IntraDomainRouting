@@ -24,14 +24,10 @@ unsigned long RoutingProtocolImpl::LS_SEQUENCE = 0;
 
 RoutingProtocolImpl::RoutingProtocolImpl(Node *n) : RoutingProtocol(n) {
 	sys = n;
-  // add your own code
 }
 
 RoutingProtocolImpl::~RoutingProtocolImpl() {
-  // add your own code (if needed)
-  
-  delete[] port_status_list;
-  
+    delete[] port_status_list;
 }
 
 void RoutingProtocolImpl::init(unsigned short num_ports, unsigned short router_id, eProtocolType protocol_type) {
@@ -74,6 +70,7 @@ void RoutingProtocolImpl::init(unsigned short num_ports, unsigned short router_i
 	}
 	else{
 		handle_invalid_protocol_type();
+		return;
 	}
 	
 	/* Ping the message to the ports */
@@ -85,8 +82,8 @@ void RoutingProtocolImpl::init(unsigned short num_ports, unsigned short router_i
  }
 
 void RoutingProtocolImpl::handle_alarm(void *data) {
-  // add your own code
-
+	/* Check the alarm type and handle all the alarms */
+	
 	char* alarm_type = (char*) data;
 
 	if(strcmp(alarm_type,PING_ALARM)==0){
@@ -116,28 +113,24 @@ void RoutingProtocolImpl::handle_alarm(void *data) {
 }
 
 void RoutingProtocolImpl::recv(unsigned short port, void *packet, unsigned short size) {
-  // add your own code
-  /* Get the claimed size of the packet */
+	/* Get the claimed size of the packet */
+	unsigned short packet_size =(unsigned short) ntohs(*(unsigned short*)((char*)packet+2));
 
 
-
-  unsigned short packet_size =(unsigned short) ntohs(*(unsigned short*)((char*)packet+2));
-
-
-  /* Compare the size value in the packet with the method input value */
+	/* Compare the size value in the packet with the method input value */
   
-  if(packet_size!=size){
+	if(packet_size!=size){
 	cerr << "RECV ERROR: Router: " << router_id << " received packet with wrong packet size at " <<sys->time()/1000.0 <<endl;
 	free(packet);
 	return;
-  }
+	}
   
-  char packet_type = *(char*) packet;
-  // cout << "RECV: Router: " << router_id << " received packet at " << sys->time()/1000.0<<endl;
-  // cout << "Packet size: "<< packet_size << endl;
-  // cout << "Packet type: " << (unsigned short)packet_type << endl;
+	char packet_type = *(char*) packet;
+	// cout << "RECV: Router: " << router_id << " received packet at " << sys->time()/1000.0<<endl;
+	// cout << "Packet size: "<< packet_size << endl;
+	// cout << "Packet type: " << (unsigned short)packet_type << endl;
   
-  switch(packet_type){
+	switch(packet_type){
 	case DATA:
 		handle_data_packet(port, packet, size);
 		break;
@@ -154,14 +147,11 @@ void RoutingProtocolImpl::recv(unsigned short port, void *packet, unsigned short
 		handle_dv_packet(port, packet,size);
 		break;
 	default:
-		handle_invalid_packet();
+		handle_invalid_packet(packet);
 		break;
-  }
+	}
   
 }
-
-// add more of your own code
-
 
 void RoutingProtocolImpl::handle_ping_alarm(){
 	/* The packet size */
@@ -255,11 +245,7 @@ void RoutingProtocolImpl::handle_ls_update_alarm(){
 
 void RoutingProtocolImpl::handle_dv_update_alarm(){
 
-
-	if (sys->time() == 457000){
-		cerr << "HEY1" << endl;
-	}
-
+	/* Push all the entries to dv_stack to send */
 	for (std::map<unsigned short, DV_Info>::iterator it = dv_table.begin(); it != dv_table.end();it++){
 		DV_Info dv_c = it->second;
 		dv_stack.push(dv_c);
@@ -271,26 +257,19 @@ void RoutingProtocolImpl::handle_dv_update_alarm(){
 
 void RoutingProtocolImpl::handle_dv_refresh_alarm(){
 
-	
 
+	/* Refresh all the dv entries in the table */
 	std::map<unsigned short, DV_Info>::iterator it = dv_table.begin();
 	while(it!=dv_table.end()){
-		unsigned short current_router = it->first;
 		DV_Info current_info;
-		
-		if (router_id == 2&&sys->time()==457000){
 
-				cerr << it->second.dest<< endl;
-
-		}
 		current_info.expire_time = it->second.expire_time;
 		if((current_info.expire_time<sys->time())){
 			current_info.cost = USHRT_MAX;
 			current_info.dest = it->second.dest;
 			current_info.next_hop = it->second.dest;
 			dv_stack.push(current_info);
-			//dv_table.erase(it++);
-			it++;
+			dv_table.erase(it++); // Erase the entry in table since it has expired
 		} else {
 			++it;
 		}
@@ -306,7 +285,7 @@ void RoutingProtocolImpl::handle_ls_refresh_alarm(){
 
 	/* Check for every LS entry's refresh time, erase it if any of those has expired */
 
-	bool change_flag = false; //TODO
+	bool change_flag = false; 
 	for (std::map<unsigned short, LS_Info>::iterator it = ls_table.begin(); it != ls_table.end();it++){
 		/* Check if the entry for the router itself has expired, weird case */
 		if (it->first==router_id){
@@ -333,7 +312,7 @@ void RoutingProtocolImpl::handle_ls_refresh_alarm(){
 	}
 
 	if(change_flag==true){
-		/* TO DO COMPUTE PATH */
+		/* Recompute the path */
 		handle_compute_ls_path();
 	}
 
@@ -362,26 +341,16 @@ void RoutingProtocolImpl::handle_port_refresh_alarm(){
 					dv_s.cost = USHRT_MAX;
 					dv_stack.push(dv_s);
 
-
-					if ((sys->time() == 456000) && router_id == 4){
-						cerr << "err" << dv_s.dest << endl;
-					}
-
-
 					dv_table.erase((unsigned short) port_status_list[i].neighbor_router_id);
 					/* Remove all the paths whose next hop is the disconnected port */
 					std::map<unsigned short, DV_Info>::iterator it=dv_table.begin();
 					while (it != dv_table.end()) {
 						if (it->second.next_hop == (unsigned short) port_status_list[i].neighbor_router_id) {
-
-							if ((sys->time() == 456000) && router_id == 4){
-								cerr << "errHEY" << it->second.dest << endl;
-							}
-
+				
+							/* Note that we could potentially remove neighbors, so remove them in port_status_list too */
 							for (int k = 0; k < num_ports;k++){
 								if (port_status_list[k].neighbor_router_id >= 0){
 									if (it->second.dest == port_status_list[k].neighbor_router_id){
-										cerr << "woops" << endl;
 										port_status_list[k].neighbor_router_id = -1;
 									}
 								}
@@ -399,22 +368,6 @@ void RoutingProtocolImpl::handle_port_refresh_alarm(){
 				}
 			}
 		}
-
-		if (sys->time() == 456000 && router_id == 4){
-			std::map<unsigned short, DV_Info>::iterator it2 = dv_table.begin();
-			while (it2!=dv_table.end()){
-				cerr << " HOHO "<< it2->second.dest << endl;
-					it2++;
-			}
-
-			for (int p = 0; p < num_ports; p++){
-				if (port_status_list[p].neighbor_router_id >= 0){
-					cerr << "TOTO " << p << " WITH NEIGB " << port_status_list[p].neighbor_router_id << endl;
-				}
-			}
-
-		}
-
 
 
 		/* Notify others about the change */
@@ -461,10 +414,12 @@ void RoutingProtocolImpl::handle_port_refresh_alarm(){
 }
 
 void RoutingProtocolImpl::handle_invalid_alarm(){
-
+	cerr << "Router ID: "<<router_id<<" invoked Invalid alarm at time "<< sys->time()/1000.0 << endl;
 }
 
 void RoutingProtocolImpl::handle_invalid_protocol_type(){
+	/* Handle invalid protocol type */
+	cerr << "Invalid protocol type LS or DV given " << endl;
 }
 
 void RoutingProtocolImpl::handle_data_packet(unsigned short port, void* packet, unsigned short size){
@@ -616,7 +571,9 @@ void RoutingProtocolImpl::handle_data_packet(unsigned short port, void* packet, 
 
 
 void RoutingProtocolImpl::handle_send_data(unsigned short port, void* packet, unsigned short size){
-	cout << "port: " <<port <<" size: "<<size<< endl;
+	/* Send the data to the destination */
+	cout << " Router: " << router_id << " sending data at " << sys->time() / 1000.0 << endl;
+	cout << "Through port: " <<port <<" size: "<<size<< endl;
 	sys->send(port, packet, size);
 	
 }
@@ -773,20 +730,15 @@ void RoutingProtocolImpl::handle_dv_stack(){
 	unsigned short stack_size = (unsigned short) dv_stack.size()*4;
 	char * stack_data = (char *) malloc(stack_size);
 	int i = 0;
+	/* Loop through the stack and pop the entries out */
 	while(!dv_stack.empty()){
 		DV_Info dv_i = dv_stack.top();
 		unsigned short dest = dv_i.dest;
 		unsigned short cost = dv_i.cost;
-		if (dest == 0) {
-
-
-			cerr<<"Router: "<< router_id << " sending DV 00 time "<< sys->time()<<endl;
-		}
 		*(unsigned short*) (stack_data+i) = (unsigned short) htons (dest);
 		*(unsigned short*) (stack_data+i+2) = (unsigned short) htons (cost);
 		dv_stack.pop();
 		i = i+4;
-		//cout<<"DV node "<<dest<<" with cost "<<cost<<endl;
 	}
 	
 	for(int j = 0; j<num_ports;j++){
@@ -1102,29 +1054,27 @@ void RoutingProtocolImpl::handle_dv_packet(unsigned short port, void* packet, un
 	
 	/* Check if the DV packet belongs to the router */
 	unsigned short dest_i = ntohs(*(unsigned short*)((char*)packet+6));
+	/* If the dv packet does not belong to the router, cast it away */
+	if (dest_i != router_id){
+		cerr << "Router ID: " << router_id << " received a packet does not belong to it , its dest is " << dest_i << " at time " << sys->time() / 1000.0 << endl;
+		free(packet);
+		return;
+	}
+
+
 	unsigned short neighbor_router_id = (unsigned short)ntohs(*(unsigned short*)((char*)packet+4));
 	int num_dv_info = (int)((size-8)/4);
 	/* POTENTIAL NULL NEIGHBOR! */
 	if (dv_table.find(neighbor_router_id) == dv_table.end()){
 		/* We dont know how to deal with it, cast away */
-		cerr << "OYEAH" << endl;
 		free(packet);
 		return;
 	}
-
-	// TODO: potential null neighbor?
+	
+	/* Else, we can deal with it */
 	unsigned short neighbor_cost = dv_table[neighbor_router_id].cost;
 	
 
-	
-	
-	if (sys->time() == 456080 && router_id == 4){
-		std::map<unsigned short, DV_Info>::iterator it3 = dv_table.begin();
-		while (it3 != dv_table.end()){
-			cerr << " KUKUWAHA! " << it3->second.dest << endl;
-			it3++;
-		}
-	}
 
 
 	/* Loop through all the entries in the packet and update the dv_info */
@@ -1136,20 +1086,6 @@ void RoutingProtocolImpl::handle_dv_packet(unsigned short port, void* packet, un
 		unsigned short dest_id = ntohs(*((unsigned short *)((char*)packet+8+i*4)));
 		unsigned short cost = ntohs(*((unsigned short*)((char*)packet+10+i*4)));
 		/* Add the new information into the table only if the cost is not infinity */
-
-
-		if (sys->time() == 456080 && router_id == 4){
-			cerr << "KAO! " << dest_id << " COST " << cost << endl;
-		}
-
-
-		if (sys->time() == 456080 && router_id == 4){
-			std::map<unsigned short, DV_Info>::iterator it2 = dv_table.begin();
-			while (it2 != dv_table.end()){
-				cerr << " KUKUWA! " << it2->second.dest << endl;
-				it2++;
-			}
-		}
 
 		/* We do not care about the distance to ourselves */
 		if (dest_id == router_id){
@@ -1179,9 +1115,7 @@ void RoutingProtocolImpl::handle_dv_packet(unsigned short port, void* packet, un
 				DV_Info dv_s = dv_table[dest_id];
 				/* If the infinity edge goes through the current stored hop, delete it and notify others */
 				if (dv_s.next_hop == neighbor_router_id){
-					if(dest_id!=dv_table[dest_id].dest){
-						cerr <<"DESTID DOESNOT MATCH! " << endl;
-					}
+
 					dv_s.expire_time = dv_table[dest_id].expire_time;
 					dv_s.next_hop = dv_table[dest_id].next_hop;
 					dv_s.cost = USHRT_MAX;
@@ -1222,20 +1156,14 @@ void RoutingProtocolImpl::handle_dv_packet(unsigned short port, void* packet, un
 		}
 	}
 
-
-	if (sys->time() == 456080 && router_id == 4){
-		std::map<unsigned short, DV_Info>::iterator it2 = dv_table.begin();
-		while (it2 != dv_table.end()){
-			cerr << " KUKU! " << it2->second.dest << endl;
-			it2++;
-		}
-	}
-
 	handle_dv_stack();
 	
 	free(packet);
 
 }
 	
-void RoutingProtocolImpl::handle_invalid_packet(){
+void RoutingProtocolImpl::handle_invalid_packet(void* packet){
+	/* Free the invalid packet */
+	cerr << "Router ID: " << router_id <<" received invalid packet at time "<< sys->time() / 1000.0 << endl;
+	free(packet);
 }
