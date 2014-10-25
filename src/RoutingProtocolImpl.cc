@@ -254,56 +254,27 @@ void RoutingProtocolImpl::handle_ls_update_alarm(){
 }
 
 void RoutingProtocolImpl::handle_dv_update_alarm(){
-	/* The packet size */
-	unsigned short dv_update_packet_size = 8+(unsigned short)dv_table.size();
-	
-	/* Send to all of its destinations */
-	for(int i =0;i<num_ports;i++){
-		Port_Status port_s = port_status_list[i];
-		if(port_s.neighbor_router_id>=0){
 
-			char* packet = (char*) malloc(dv_update_packet_size);
-			
-			/* First 1 byte */
-			*(ePacketType*) packet = DV;
-			/* Second 1 byte reserved.. */
-			
-			/* Third 2 bytes for the packet size */
-			*(unsigned short*) (packet+2) = (unsigned short) htons(dv_update_packet_size); 
-		
-			/* Fourth 2 bytes for the source id */
-			*(unsigned short*) (packet+4) = (unsigned short) htons(router_id);
-			
-			/* Fifth 2 bytes for the dest id */
-			*(unsigned short*) (packet+6) = (unsigned short) htons(port_s.neighbor_router_id);
-		
-			/* Sixth for data */
-			// Left for change using memcpy to save iteration
-			int j = 6;
-			for(std::map<unsigned short, DV_Info>::iterator it=dv_table.begin();it!=dv_table.end();it++){
-				*(unsigned short*) (packet+j) = (unsigned short) htons(it->first);
-				*(unsigned short*) (packet+j+2) =(unsigned short) htons(it->second.cost);
-				j = j+4;
-			}
-			
-			sys->send((unsigned short)i,packet,dv_update_packet_size);
-		}
+	for (std::map<unsigned short, DV_Info>::iterator it = dv_table.begin(); it != dv_table.end();it++){
+		DV_Info dv_c = it->second;
+		dv_stack.push(dv_c);
 	}
+	handle_dv_stack();
 	
 	sys->set_alarm(this,DV_UPDATE_INTERVAL,(void*)DV_UPDATE_ALARM);
-	
 }
 
 void RoutingProtocolImpl::handle_dv_refresh_alarm(){
-	for(std::map<unsigned short, DV_Info>::iterator it = dv_table.begin();it!=dv_table.end();it++){
+	std::map<unsigned short, DV_Info>::iterator it = dv_table.begin();
+	while(it!=dv_table.end()){
 		unsigned short current_router = it->first;
 		DV_Info current_info = it->second;
 		if((current_info.expire_time<sys->time())){
-			/* Notify the neighbor about this time out for poison reverse*/
 			current_info.cost = USHRT_MAX;
 			dv_stack.push(current_info);
-			/* Remove from DV table */
-			dv_table.erase(current_router);
+			dv_table.erase(it++);
+		} else {
+			++it;
 		}
 	}
 	/* Notify */
@@ -316,7 +287,7 @@ void RoutingProtocolImpl::handle_ls_refresh_alarm(){
 
 	/* Check for every LS entry's refresh time, erase it if any of those has expired */
 
-	bool change_flag = false;;
+	bool change_flag = false; //TODO
 	for (std::map<unsigned short, LS_Info>::iterator it = ls_table.begin(); it != ls_table.end();it++){
 		/* Check if the entry for the router itself has expired, weird case */
 		if (it->first==router_id){
@@ -364,15 +335,19 @@ void RoutingProtocolImpl::handle_port_refresh_alarm(){
 				/* Compare time, erase the router id if exceed expire_time */
 				if (port_status_list[i].expire_time < sys->time()){
 					/* Send Cost Infinity to prevent from poison reverse */
-					DV_Info dv_s = dv_table[port_status_list[i].neighbor_router_id];
+					DV_Info dv_s = dv_table[(unsigned short) port_status_list[i].neighbor_router_id];
 					dv_s.cost = USHRT_MAX;
 					dv_stack.push(dv_s);
-
-					/* If our path to neighbor is exactly neighbor itself, we erase it */
-					if (dv_s.next_hop == port_status_list[i].neighbor_router_id){
-
-						/* We remove it from our table*/
-						dv_table.erase(port_status_list[i].neighbor_router_id);
+					dv_table.erase((unsigned short) port_status_list[i].neighbor_router_id);
+					/* Remove all the paths whose next hop is the disconnected port */
+					std::map<unsigned short, DV_Info>::iterator it=dv_table.begin();
+					while (it != dv_table.end()) {
+						if (it->second.next_hop == (unsigned short) port_status_list[i].neighbor_router_id) {
+							/* We remove it from our table*/
+							dv_table.erase(it++);
+						} else {
+							++it;
+						}
 					}
 
 					/* Remove the neighbor */
@@ -396,7 +371,7 @@ void RoutingProtocolImpl::handle_port_refresh_alarm(){
 				/* Check if expired */
 				if (port_status_list[i].expire_time < sys->time()){
 					/* Delete the node in entry, send the new LSP to everyone */
-					ls_table[router_id].LSP.erase(port_status_list[i].neighbor_router_id);
+					ls_table[router_id].LSP.erase((unsigned short) port_status_list[i].neighbor_router_id);
 					ls_table[router_id].sequence = LS_SEQUENCE;
 					LS_SEQUENCE++; // The entry has changed... 
 					cout<<"Router "<< router_id<< " find "<< port_status_list[i].neighbor_router_id << " has timed out at " << sys->time() / 1000.0 << endl;
@@ -444,8 +419,8 @@ void RoutingProtocolImpl::handle_data_packet(unsigned short port, void* packet, 
 		if (port == USHRT_MAX){
 
 			cout << "The current routing table is " << endl;
-			for (std::map<unsigned short, unsigned short>::iterator it=ls_mapping.begin(); it != ls_mapping.end();it++) {
-				cout << "Destination: " << it->first << " through " << it->second << endl;
+			for (std::map<unsigned short, DV_Info>::iterator it=dv_table.begin(); it != dv_table.end();it++) {
+				cout << "Destination: " << it->first << " through " << it->second.next_hop <<" with cost "<< it->second.cost<< endl;
 			}
 			
 			/* Check if the packet is actually for itself, wierd case */
@@ -493,6 +468,10 @@ void RoutingProtocolImpl::handle_data_packet(unsigned short port, void* packet, 
 
 		if (dv_table.find(dest_id) != dv_table.end()){
 			unsigned short next_hop = dv_table[dest_id].next_hop;
+			cout << "The current routing table is " << endl;
+			for (std::map<unsigned short, DV_Info>::iterator it=dv_table.begin(); it != dv_table.end();it++) {
+				cout << "Destination: " << it->first << " through " << it->second.next_hop <<" with cost "<< it->second.cost<< endl;
+			}
 			handle_send_data(hop_to_port[next_hop], packet, size);
 		}
 		else{
@@ -727,7 +706,6 @@ void RoutingProtocolImpl::handle_dv_stack(){
 		return;
 	}
 	
-	
 	unsigned short stack_size = (unsigned short) dv_stack.size()*4;
 	char * stack_data = (char *) malloc(stack_size);
 	int i = 0;
@@ -735,15 +713,19 @@ void RoutingProtocolImpl::handle_dv_stack(){
 		DV_Info dv_i = dv_stack.top();
 		unsigned short dest = dv_i.dest;
 		unsigned short cost = dv_i.cost;
-		*(unsigned short*) (stack_data+i) = dest;
-		*(unsigned short*) (stack_data+i+2) = cost;
+		if (dest == 0) {
+			cerr<<"Router: "<< router_id << " sending DV 00 time "<< sys->time()<<endl;
+		}
+		*(unsigned short*) (stack_data+i) = (unsigned short) htons (dest);
+		*(unsigned short*) (stack_data+i+2) = (unsigned short) htons (cost);
 		dv_stack.pop();
 		i = i+4;
+		//cout<<"DV node "<<dest<<" with cost "<<cost<<endl;
 	}
 	
 	for(int j = 0; j<num_ports;j++){
 		Port_Status port_s = port_status_list[j];
-		if(port_s.neighbor_router_id!=-1){
+		if(port_s.neighbor_router_id>=0){
 			char * packet = (char *) malloc(stack_size+8);
 			
 			/* First 1 byte */
@@ -757,7 +739,7 @@ void RoutingProtocolImpl::handle_dv_stack(){
 			*(unsigned short*) (packet+4) = (unsigned short) htons(router_id);
 			
 			/* Fifth 2 bytes for the dest id */
-			*(unsigned short*) (packet+6) = (unsigned short) htons(port_s.neighbor_router_id);
+			*(unsigned short*) (packet+6) = (unsigned short) htons((unsigned short) port_s.neighbor_router_id);
 		
 			/* Sixth for data, copy the */
 			memcpy(packet+8,stack_data,stack_size);
@@ -1049,22 +1031,16 @@ void RoutingProtocolImpl::handle_compute_ls_path(){
 
 void RoutingProtocolImpl::handle_dv_packet(unsigned short port, void* packet, unsigned short size){
 	/* Check if the DV packet belongs to the router */
-	if(!*(unsigned short*)((char*)packet+6)== router_id){
-		cerr<< "RECV DV ERROR: Router: "<<router_id<< "received DV packet with wrong destination router ID at time: " << sys->time()/1000.0<<endl;
-		free(packet);
-		return;
-	}
-
+	unsigned short dest_i = ntohs(*(unsigned short*)((char*)packet+6));
 	unsigned short neighbor_router_id = (unsigned short)ntohs(*(unsigned short*)((char*)packet+4));
 	int num_dv_info = (int)((size-8)/4);
 	// TODO: potential null neighbor?
 	unsigned short neighbor_cost = dv_table[neighbor_router_id].cost;
-	
-	
 	/* Loop through all the entries in the packet and update the dv_info */
 	for(int i =0; i< num_dv_info;i++){
-		unsigned short dest_id = *((unsigned short *)((char*)packet+8+i*4));
-		unsigned short cost = *((unsigned short*)((char*)packet+10+i*4));
+	
+		unsigned short dest_id = ntohs(*((unsigned short *)((char*)packet+8+i*4)));
+		unsigned short cost = ntohs(*((unsigned short*)((char*)packet+10+i*4)));
 		/* Add the new information into the table only if the cost is not infinity */
 
 		/* We do not care about the distance to ourselves */
@@ -1072,7 +1048,10 @@ void RoutingProtocolImpl::handle_dv_packet(unsigned short port, void* packet, un
 			continue;
 		}
 
-		if(dv_table.find(dest_id)==dv_table.end()&& (cost!=USHRT_MAX)){
+		if(dv_table.find(dest_id)==dv_table.end()){
+			if (cost == USHRT_MAX) {
+				continue;
+			}
 			/* The destination node is not in the table */
 			DV_Info dv_s;
 			dv_s.dest = dest_id;
@@ -1087,14 +1066,18 @@ void RoutingProtocolImpl::handle_dv_packet(unsigned short port, void* packet, un
 		}
 		else {
 			
-			
-			DV_Info dv_s = dv_table[dest_id];
-			
 			/* Check if an infinity package for poison reverse */
 			if (cost == USHRT_MAX){
+				DV_Info dv_s;// = dv_table[dest_id];
 				/* If the infinity edge goes through the current stored hop, delete it and notify others */
 				if (dv_s.next_hop == neighbor_router_id){
+					if(dest_id!=dv_table[dest_id].dest){
+						cerr <<"DESTID DOESNOT MATCH! " << endl;
+					}
+					dv_s.expire_time = dv_table[dest_id].expire_time;
+					dv_s.next_hop = dv_table[dest_id].next_hop;
 					dv_s.cost = USHRT_MAX;
+					dv_s.dest = dv_table[dest_id].dest;
 					dv_stack.push(dv_s);
 					dv_table.erase(dest_id);
 				}
@@ -1102,13 +1085,16 @@ void RoutingProtocolImpl::handle_dv_packet(unsigned short port, void* packet, un
 				/* Else it does nothing with our current path*/
 			}
 			else{
+				DV_Info dv_s= dv_table[dest_id];
 				/* Refresh the dest node time even if no changes are made */
 				dv_s.expire_time = sys->time() + DV_MAX_TIMEOUT;
+				dv_table[dest_id].expire_time = dv_s.expire_time;
 
 				if (dv_s.next_hop == neighbor_router_id){
 					/* Add to dv stack only if they are different cost */
 					if (dv_s.cost != (cost + neighbor_cost)){
 						dv_s.cost = cost + neighbor_cost;
+						dv_table[dest_id].cost = dv_s.cost; // Change the value in the table
 						/* Push to stack */
 						dv_stack.push(dv_s);
 					}
@@ -1116,7 +1102,9 @@ void RoutingProtocolImpl::handle_dv_packet(unsigned short port, void* packet, un
 				else if (dv_table[dest_id].cost > (cost + neighbor_cost)){
 					/* Select a new shorter path, change next_hop */
 					dv_s.cost = cost + neighbor_cost;
+					dv_table[dest_id].cost = dv_s.cost;
 					dv_s.next_hop = neighbor_router_id;
+					dv_table[dest_id].next_hop = dv_s.next_hop;
 
 					/* Push stack */
 					dv_stack.push(dv_s);
@@ -1124,7 +1112,6 @@ void RoutingProtocolImpl::handle_dv_packet(unsigned short port, void* packet, un
 			}
 		}
 	}
-	
 	handle_dv_stack();
 	
 	free(packet);
