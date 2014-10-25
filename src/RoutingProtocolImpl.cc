@@ -1035,7 +1035,7 @@ void RoutingProtocolImpl::handle_compute_ls_path(){
 
 	}
 
-	cout << "The computed LS path at time " <<sys->time() << ": " << endl;
+	cout << "The computed LS path at time " <<sys->time()/1000.0 << ": " << endl;
 	for (std::map<unsigned short, unsigned short>::iterator it = distance_to_start.begin(); it != distance_to_start.end();it++){
 		cout << "Node: " << it->first << " with cost: " << it->second << endl;
 	}
